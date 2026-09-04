@@ -90,6 +90,7 @@ function GroupSection({
 }
 
 export function TodayView() {
+  const ready = useStore((s) => s.ready);
   const now = useNow();
   const tasks = useStore((s) => s.tasks);
   const sections = useStore((s) => s.sections);
@@ -129,7 +130,7 @@ export function TodayView() {
 
   return (
     <PageFrame>
-      {!now || !derived ? (
+      {!ready || !now || !derived ? (
         <div className="space-y-6">
           <div className="space-y-2">
             <div className="h-3 w-40 animate-pulse rounded bg-muted/60" />
@@ -202,11 +203,7 @@ export function TodayView() {
               <EmptyState
                 icon={<SunMedium className="h-4.5 w-4.5" strokeWidth={1.5} />}
                 title="Nothing scheduled for today"
-                body={
-                  tasks.length === 0
-                    ? "Seed data hasn't loaded — refresh to see your workspace."
-                    : "Add a daily routine or pick a remainder task to get moving."
-                }
+                body="Add a daily routine, or a task with a due date to make it special today."
                 action={
                   <Button
                     variant="soft"

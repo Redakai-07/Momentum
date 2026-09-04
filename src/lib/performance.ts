@@ -1,6 +1,11 @@
 import { PROFILE, type DailyPerformance, type Task, type TimeLog } from "./types";
 import { taskOccursOn } from "./schedule";
 
+/** True when at least one time log exists for `taskId` on `date`. */
+function hasLogOn(logs: TimeLog[], taskId: string, date: string): boolean {
+  return logs.some((l) => l.taskId === taskId && l.date === date);
+}
+
 export interface DayRec {
   date: string;
   plannedMinutes: number;
@@ -25,14 +30,22 @@ export function workloadForTasks(tasks: Task[], key: string) {
   return { planned, remaining, completed, count: occurring.length };
 }
 
-/** Live performance record for one day computed from tasks + time logs. */
+/**
+ * Performance record for one day computed from tasks + time logs.
+ * A logged one-off (e.g. a remainder task with no schedule) also counts as
+ * planned work for that day — effort should never be invisible to the streak.
+ */
 export function liveDayRec(
   tasks: Task[],
   logs: TimeLog[],
   key: string,
 ): DayRec {
-  const { planned } = workloadForTasks(tasks, key);
+  let planned = 0;
   let completed = 0;
+  for (const t of tasks) {
+    if (!taskOccursOn(t, key) && !hasLogOn(logs, t.id, key)) continue;
+    planned += t.estimatedMinutes;
+  }
   for (const l of logs) {
     if (l.date === key) completed += l.minutes;
   }

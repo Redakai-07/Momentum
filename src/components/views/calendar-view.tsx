@@ -29,6 +29,7 @@ interface CellInfo {
 
 export function CalendarView() {
   const mounted = useMounted();
+  const ready = useStore((s) => s.ready);
   const now = useNow();
   const tasks = useStore((s) => s.tasks);
   const toggleTask = useStore((s) => s.toggleTask);
@@ -123,7 +124,7 @@ export function CalendarView() {
         }
       />
 
-      {!mounted || !today ? (
+      {!mounted || !ready || !today ? (
         <ListSkeleton rows={5} />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">

@@ -13,6 +13,7 @@ import { TaskFormModal } from "@/components/tasks/task-form";
 
 export function OccasionalView() {
   const mounted = useMounted();
+  const ready = useStore((s) => s.ready);
   const tasks = useStore((s) => s.tasks);
   const toggleTask = useStore((s) => s.toggleTask);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export function OccasionalView() {
         }
       />
 
-      {!mounted ? (
+      {!mounted || !ready ? (
         <ListSkeleton rows={4} />
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState

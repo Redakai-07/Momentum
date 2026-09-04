@@ -75,13 +75,14 @@ function ThemeToggle() {
 }
 
 function StreakMini() {
+  const ready = useStore((s) => s.ready);
   const now = useNow();
   const history = useStore((s) => s.history);
   const tasks = useStore((s) => s.tasks);
   const logs = useStore((s) => s.logs);
 
   let streak: number | null = null;
-  if (now) {
+  if (ready && now) {
     const key = [
       now.getFullYear(),
       String(now.getMonth() + 1).padStart(2, "0"),

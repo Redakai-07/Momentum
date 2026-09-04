@@ -3,9 +3,10 @@
 A personal command center for daily work, long-term goals, and consistency.
 Minimal UI on the surface — a real task/time/performance system underneath.
 
-> **Iteration 1 — application shell & UI.** Everything is driven by realistic
-> in-memory mock data (seeded on load) so every control is fully functional.
-> Data resets on refresh; IndexedDB persistence (Dexie) is the next milestone.
+> **Iteration 2 — functional local-first app.** The full UI now runs on real
+> IndexedDB persistence (Dexie). Tasks, time logs, custom sections and daily
+> performance records survive refreshes and reloads. On a truly first run the
+> example workspace is seeded once; after that everything you see is your data.
 
 ## The three questions it answers
 
@@ -20,7 +21,8 @@ Minimal UI on the surface — a real task/time/performance system underneath.
 
 - **Next.js 16** (App Router) + **TypeScript** (strict)
 - **Tailwind CSS v4** — semantic tokens, intentional light & dark themes
-- **Zustand** — in-memory client state (seed data; persistence comes later)
+- **Zustand** — client state, hydrated from and persisted to IndexedDB
+- **Dexie.js** — typed local database (`momentum`): tasks, logs, sections, performance
 - **Recharts** — minimal profile charts
 - **lucide-react**, **clsx** + **tailwind-merge**
 - PWA-ready: manifest, theme-color, standalone meta, viewport-fit, app icon
@@ -49,13 +51,19 @@ src/
     views/              page-level compositions (client)
   lib/
     types.ts            Task / TimeLog / DailyPerformance / CustomSection models
-    mock.ts             deterministic realistic seed (tasks, logs, sections, 430-day history)
-    store.ts            Zustand store — actions only, no persistence yet
+    db.ts               Dexie schema (tables: tasks, logs, sections, performance, meta)
+    seed.ts             one-time example workspace (only used when the DB is empty)
+    store.ts            Zustand store: hydrates from IndexedDB, persists every mutation
     date.ts format.ts schedule.ts performance.ts   pure business logic
 ```
 
-Business logic lives outside components so a Dexie/IndexedDB or cloud-sync layer
-can be added without touching the UI.
+**How persistence works** — every store action updates React state immediately
+and writes through to Dexie. On boot the app hydrates from IndexedDB, performs a
+day rollover (recurring tasks reset overnight; one-off tasks keep state), and
+snapshots today's performance. The daily-performance table is seeded once with
+realistic history so streaks/analytics are meaningful immediately; from then on
+new days are computed from your actual time logs. Deleting the `momentum`
+database resets to the first-run seed (dev tooling only).
 
 ## Data model notes
 

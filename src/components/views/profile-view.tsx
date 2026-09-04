@@ -38,17 +38,16 @@ function historyRec(h: DailyPerformance): DayRec {
     completedMinutes: h.completedMinutes,
     percentage: h.percentage,
   };
-}
-
-export function ProfileView() {
-
+}export function ProfileView() {
   const mounted = useMounted();
+  const ready = useStore((s) => s.ready);
   const now = useNow();
   const [tab, setTab] = useState<Tab>("overview");
 
   const tasks = useStore((s) => s.tasks);
   const logs = useStore((s) => s.logs);
   const history = useStore((s) => s.history);
+
 
   const { theme, setTheme } = useTheme();
 
@@ -168,7 +167,7 @@ export function ProfileView() {
         />
       </div>
 
-      {!mounted || !data || !todayRec ? (
+      {!mounted || !ready || !data || !todayRec ? (
         <ListSkeleton rows={6} />
       ) : tab === "overview" ? (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">

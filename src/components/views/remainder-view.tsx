@@ -28,6 +28,7 @@ function sortRemainder(tasks: Task[]): Task[] {
 
 export function RemainderView() {
   const mounted = useMounted();
+  const ready = useStore((s) => s.ready);
   const tasks = useStore((s) => s.tasks);
   const toggleTask = useStore((s) => s.toggleTask);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -59,7 +60,7 @@ export function RemainderView() {
         }
       />
 
-      {!mounted ? (
+      {!mounted || !ready ? (
         <ListSkeleton rows={5} />
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState
