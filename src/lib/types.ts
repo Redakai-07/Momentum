@@ -1,0 +1,71 @@
+/** Weekday index, matching Date#getDay(): 0 = Sunday … 6 = Saturday. */
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export type ScheduleType = "daily" | "weekly" | "custom";
+
+export interface Schedule {
+  type: ScheduleType;
+  /** Weekdays the task recurs on (weekly/custom). Monday-first when rendered. */
+  days?: Weekday[];
+  /** Local "HH:MM" 24h. */
+  startTime?: string;
+  endTime?: string;
+}
+
+export type SectionKind = "daily" | "remainder" | "occasional" | "custom";
+
+export type Priority = "low" | "medium" | "high";
+
+export interface Task {
+  id: string;
+  title: string;
+  section: SectionKind;
+  customSectionId?: string;
+  /** Total time this task is planned to take, in minutes. */
+  estimatedMinutes: number;
+  /** What is left today / for this instance, in minutes. */
+  remainingMinutes: number;
+  description?: string;
+  /** Concrete next step — turns vague tasks into actionable ones. */
+  nextAction?: string;
+  /** YYYY-MM-DD (local). Tasks with a due date surface as Special Tasks. */
+  dueDate?: string;
+  priority?: Priority;
+  schedule?: Schedule;
+  completed: boolean;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface TimeLog {
+  id: string;
+  taskId: string;
+  minutes: number;
+  /** YYYY-MM-DD (local). */
+  date: string;
+}
+
+export interface DailyPerformance {
+  /** YYYY-MM-DD (local). */
+  date: string;
+  plannedMinutes: number;
+  completedMinutes: number;
+  /** 0–100, or null when the day had no planned activity ("rest day"). */
+  percentage: number | null;
+}
+
+export interface CustomSection {
+  id: string;
+  name: string;
+  icon?: string;
+  schedule: Schedule;
+  createdAt: string;
+}
+
+export const PROFILE = {
+  name: "Venkatesh",
+  /** Percentage required on a day for the streak to survive. */
+  streakThreshold: 0.7,
+  bestStreak: 21,
+  joined: "2026-01-12",
+} as const;

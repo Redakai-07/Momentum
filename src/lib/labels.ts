@@ -1,0 +1,42 @@
+import type { CustomSection, Schedule, Task } from "./types";
+import { WEEKDAYS_MON_FIRST } from "./date";
+
+export function sectionLabel(task: Task, sections: CustomSection[]): {
+  title: string;
+  icon?: string;
+} {
+  if (task.section === "daily") return { title: "Daily" };
+  if (task.section === "remainder") return { title: "Remainder" };
+  if (task.section === "occasional") return { title: "Occasional" };
+  const s = sections.find((x) => x.id === task.customSectionId);
+  return { title: s?.name ?? "Custom", icon: s?.icon };
+}
+
+export function scheduleSummary(schedule: Schedule): string {
+  switch (schedule.type) {
+    case "daily":
+      return "Every day";
+    case "weekly":
+    case "custom": {
+      const days = schedule.days ?? [];
+      if (days.length === 0) return schedule.type === "weekly" ? "Weekly" : "Custom days";
+      if (days.length === 7) return "Every day";
+      const map = new Map<number, string>();
+      WEEKDAYS_MON_FIRST.forEach((d, i) => map.set((i + 1) % 7, d));
+      const labels = [...days]
+        .sort((a, b) => (a + 6) % 7 - ((b + 6) % 7))
+        .map((d) => map.get(d) ?? "");
+      if (schedule.type === "weekly") {
+        return `Every week on ${labels.join(" · ")}`;
+      }
+      return labels.join(" · ");
+    }
+  }
+}
+
+export function timeRange(schedule?: Schedule): string | null {
+  if (!schedule?.startTime) return null;
+  return schedule.endTime
+    ? `${schedule.startTime}–${schedule.endTime}`
+    : schedule.startTime;
+}

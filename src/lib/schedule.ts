@@ -1,0 +1,119 @@
+import { parseKey } from "./date";
+import type { CustomSection, Task } from "./types";
+
+/** Does a schedule fire on the given date? */
+export function scheduleOccursOn(
+  schedule: NonNullable<Task["schedule"]>,
+  date: Date,
+): boolean {
+  if (schedule.type === "daily") return true;
+  const days = schedule.days;
+  if (!days || days.length === 0) return false;
+  return days.includes(date.getDay() as (typeof days)[number]);
+}
+
+/**
+ * A task is "present" on a date when it recurs that day (schedule) or
+ * is a one-off with that exact due date. Completed tasks stay present so
+ * the calendar can show history.
+ */
+export function taskOccursOn(task: Task, key: string): boolean {
+  const date = parseKey(key);
+  if (task.schedule) {
+    return scheduleOccursOn(task.schedule, date);
+  }
+  return task.dueDate === key;
+}
+
+export interface DayGroup {
+  id: string;
+  title: string;
+  icon?: string;
+  tasks: Task[];
+}
+
+export interface DayBreakdown {
+  /** Open tasks whose due date is today — the Special Tasks. */
+  specials: Task[];
+  /** Completed special tasks from today. */
+  specialsDone: Task[];
+  /** Recurring (daily + custom-section) tasks grouped by section. */
+  groups: DayGroup[];
+}
+
+/**
+ * What the Today dashboard should show for `key`: recurring tasks grouped
+ * by section, plus due-today specials. Remainder/occasional one-offs only
+ * reach the dashboard through the special channel (their due date).
+ */
+export function breakdownForDay(
+  tasks: Task[],
+  sections: CustomSection[],
+  key: string,
+): DayBreakdown {
+  const onDay = tasks.filter((t) => taskOccursOn(t, key));
+
+  const specials: Task[] = [];
+  const specialsDone: Task[] = [];
+  for (const t of onDay) {
+    if (t.section !== "daily" && t.section !== "custom" && t.dueDate === key) {
+      (t.completed ? specialsDone : specials).push(t);
+    }
+  }
+
+  const groups: DayGroup[] = [];
+  const sectionById = new Map(sections.map((s) => [s.id, s]));
+
+  const builtins: { id: string; title: string; icon?: string; tasks: Task[] }[] = [
+    { id: "builtin-daily", title: "Daily", tasks: [] },
+  ];
+  const customGroups = new Map<string, DayGroup>();
+
+  for (const t of onDay) {
+    if (t.section === "daily") {
+      builtins[0].tasks.push(t);
+    } else if (t.section === "custom" && t.customSectionId) {
+      const section = sectionById.get(t.customSectionId);
+      const id = section?.id ?? t.customSectionId;
+      let g = customGroups.get(id);
+      if (!g) {
+        g = {
+          id,
+          title: section?.name ?? "Custom",
+          icon: section?.icon,
+          tasks: [],
+        };
+        customGroups.set(id, g);
+      }
+      g.tasks.push(t);
+    }
+  }
+
+  if (builtins[0].tasks.length > 0) groups.push(builtins[0]);
+  for (const g of customGroups.values()) {
+    if (g.tasks.length > 0) groups.push(g);
+  }
+
+  const sortTasks = (a: Task, b: Task) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    const ta = a.schedule?.startTime ?? "";
+    const tb = b.schedule?.startTime ?? "";
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  };
+  for (const g of groups) g.tasks.sort(sortTasks);
+
+  return { specials, specialsDone, groups };
+}
+
+/** Tasks to list for a calendar day (recurring + due), sorted. */
+export function tasksForDay(tasks: Task[], key: string): Task[] {
+  return tasks
+    .filter((t) => taskOccursOn(t, key))
+    .sort((a, b) => {
+      const ta = a.schedule?.startTime ?? "99";
+      const tb = b.schedule?.startTime ?? "99";
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      return a.title.localeCompare(b.title);
+    });
+}

@@ -1,0 +1,229 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (toggled on <html> by the theme script/provider). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ */
+/* Semantic tokens — warm neutrals, calm indigo accent, amber signal.  */
+/* Values are raw HSL triplets so we can build alpha variants.         */
+/* ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+
+  --background: 45 20% 96.5%;
+  --foreground: 28 14% 12%;
+
+  --card: 45 30% 98.6%;
+  --card-foreground: 28 14% 12%;
+
+  --popover: 45 30% 98.6%;
+  --popover-foreground: 28 14% 12%;
+
+  --muted: 40 12% 91%;
+  --muted-foreground: 30 8% 38%;
+
+  --accent: 243 32% 94.5%;
+  --accent-foreground: 243 38% 26%;
+
+  --primary: 243 52% 44%;
+  --primary-foreground: 0 0% 100%;
+
+  --destructive: 3 66% 42%;
+  --destructive-foreground: 0 0% 100%;
+
+  --signal: 32 90% 38%;
+  --signal-soft: 38 70% 92%;
+  --signal-foreground: 33 50% 22%;
+
+  --success: 150 55% 32%;
+
+  --border: 38 12% 85.5%;
+  --input: 38 12% 84%;
+  --ring: 243 55% 50%;
+
+  --sidebar: 45 16% 93.5%;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: 28 10% 7.5%;
+  --foreground: 40 22% 91%;
+
+  --card: 28 9% 10.5%;
+  --card-foreground: 40 22% 91%;
+
+  --popover: 28 9% 11%;
+  --popover-foreground: 40 22% 91%;
+
+  --muted: 28 7% 15.5%;
+  --muted-foreground: 38 8% 60%;
+
+  --accent: 240 40% 20%;
+  --accent-foreground: 240 60% 88%;
+
+  --primary: 237 78% 72%;
+  --primary-foreground: 246 55% 9%;
+
+  --destructive: 2 70% 58%;
+  --destructive-foreground: 0 0% 100%;
+
+  --signal: 40 92% 58%;
+  --signal-soft: 38 60% 13%;
+  --signal-foreground: 42 90% 80%;
+
+  --success: 152 60% 48%;
+
+  --border: 28 7% 18%;
+  --input: 28 7% 20%;
+  --ring: 237 70% 70%;
+
+  --sidebar: 28 9% 6.5%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-signal: hsl(var(--signal));
+  --color-signal-soft: hsl(var(--signal-soft));
+  --color-signal-foreground: hsl(var(--signal-foreground));
+  --color-success: hsl(var(--success));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-sidebar: hsl(var(--sidebar));
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+
+  --shadow-soft: 0 1px 2px rgb(24 18 8 / 0.05), 0 10px 30px -18px rgb(24 18 8 / 0.18);
+  --shadow-lift: 0 1px 2px rgb(24 18 8 / 0.05), 0 24px 60px -24px rgb(24 18 8 / 0.35);
+}
+
+.dark {
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 34px -18px rgb(0 0 0 / 0.5);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.4), 0 30px 70px -24px rgb(0 0 0 / 0.7);
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.16);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  /* Slim, quiet scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.28);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Number alignment everywhere time/percentages appear */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion                                                              */
+/* ------------------------------------------------------------------ */
+
+@keyframes fb-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fb-rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fb-pop-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fb-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.anim-fade-in { animation: fb-fade-in 0.22s ease both; }
+.anim-rise-in { animation: fb-rise-in 0.28s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
+.anim-pop-in { animation: fb-pop-in 0.24s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
+.anim-fade-up { animation: fb-fade-up 0.3s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
+
+/* Stagger helper for lists */
+.stagger > * { animation: fb-rise-in 0.3s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.05s; }
+.stagger > *:nth-child(3) { animation-delay: 0.08s; }
+.stagger > *:nth-child(4) { animation-delay: 0.11s; }
+.stagger > *:nth-child(5) { animation-delay: 0.14s; }
+.stagger > *:nth-child(6) { animation-delay: 0.17s; }
+.stagger > *:nth-child(7) { animation-delay: 0.2s; }
+.stagger > *:nth-child(8) { animation-delay: 0.23s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
