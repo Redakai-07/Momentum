@@ -16,3 +16,22 @@ export const isTaskOpen = (t: Task): boolean => t.status === "active";
 export const canAccomplish = (t: Task): boolean =>
   (t.section === "daily" || t.section === "remainder") &&
   !isTaskAccomplished(t);
+
+/**
+ * Pure transition: permanently retire a goal into an accomplishment.
+ * The record is preserved in place (title, section, description, estimate,
+ * schedule, next action) — only the lifecycle fields change. Time logs keep
+ * referencing the task id, so its history remains intact.
+ */
+export function toAccomplished(
+  task: Task,
+  nowIso: string = new Date().toISOString(),
+): Task {
+  return {
+    ...task,
+    status: "accomplished",
+    accomplishedAt: nowIso,
+    completedAt: task.completedAt ?? nowIso,
+    remainingMinutes: 0,
+  };
+}

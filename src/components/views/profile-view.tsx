@@ -23,6 +23,9 @@ import {
   aggregate,
   rawTotals,
   isNeutralRec,
+  weeklyAggregate,
+  monthlyAggregate,
+  yearlyAggregate,
   type DayRec,
 } from "@/lib/performance";
 import { usedRecoveries } from "@/lib/activity";
@@ -148,15 +151,11 @@ export function ProfileView() {
       );
     }
 
-    const monthKey = today.slice(0, 7);
-    const yearKey = today.slice(0, 4);
-    const inMonth = all.filter((r) => r.date.slice(0, 7) === monthKey && r.date <= today);
-    const inYear = all.filter((r) => r.date.slice(0, 4) === yearKey && r.date <= today);
     const last30 = all.filter((r) => r.date > addDaysKey(today, -30) && r.date <= today);
 
-    const weekly = aggregate(weekRows.filter((r) => !r.pending));
-    const monthly = aggregate(inMonth);
-    const yearly = aggregate(inYear);
+    const weekly = weeklyAggregate(all, today);
+    const monthly = monthlyAggregate(all, today);
+    const yearly = yearlyAggregate(all, today);
     const roll30 = aggregate(last30);
     const totals30 = rawTotals(last30);
     const streak = currentStreak(all, today);

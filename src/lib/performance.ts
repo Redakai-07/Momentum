@@ -1,5 +1,6 @@
 import { PROFILE, type DailyPerformance, type DayKind, type Task, type TimeLog } from "./types";
 import { taskOccursOn } from "./schedule";
+import { dateKey, parseKey, startOfWeek } from "./date";
 
 /** True when at least one time log exists for `taskId` on `date`. */
 function hasLogOn(logs: TimeLog[], taskId: string, date: string): boolean {
@@ -126,6 +127,31 @@ export function averagePercentage(recs: DayRec[]): number | null {
   return Math.round(
     active.reduce((s, r) => s + (r.percentage ?? 0), 0) / active.length,
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Period rollups (week / month / year)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Performance for the Monday-first week containing `today`, counting only
+ * days up to and including `today` (the in-progress day is never excluded).
+ */
+export function weeklyAggregate(recs: DayRec[], today: string): DayAggregate {
+  const monday = dateKey(startOfWeek(parseKey(today)));
+  return aggregate(recs.filter((r) => r.date >= monday && r.date <= today));
+}
+
+/** Performance for the calendar month containing `today`, up to `today`. */
+export function monthlyAggregate(recs: DayRec[], today: string): DayAggregate {
+  const month = today.slice(0, 7);
+  return aggregate(recs.filter((r) => r.date.slice(0, 7) === month && r.date <= today));
+}
+
+/** Performance for the calendar year containing `today`, up to `today`. */
+export function yearlyAggregate(recs: DayRec[], today: string): DayAggregate {
+  const year = today.slice(0, 4);
+  return aggregate(recs.filter((r) => r.date.slice(0, 4) === year && r.date <= today));
 }
 
 /**

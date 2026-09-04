@@ -8,7 +8,7 @@ import { applyRecoveryKinds } from "./activity";
 import { NOTIFICATION_DEFAULTS } from "./config";
 import { planNotifications } from "./notifications/engine";
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
-import { isTaskDone } from "./task-state";
+import { canAccomplish, isTaskDone, toAccomplished } from "./task-state";
 import type {
   CustomSection,
   DailyPerformance,
@@ -412,16 +412,9 @@ export const useStore = create<MomentumState>()((set, get) => ({
 
   accomplishTask: (id) => {
     const task = get().tasks.find((t) => t.id === id);
-    if (!task || task.status === "accomplished") return;
-    if (task.section !== "daily" && task.section !== "remainder") return;
+    if (!task || !canAccomplish(task)) return;
 
-    const next: Task = {
-      ...task,
-      status: "accomplished",
-      accomplishedAt: new Date().toISOString(),
-      completedAt: task.completedAt ?? new Date().toISOString(),
-      remainingMinutes: 0,
-    };
+    const next = toAccomplished(task);
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
     db.tasks
       .put(next)
@@ -464,17 +457,17 @@ export const useStore = create<MomentumState>()((set, get) => ({
 
     if (creates.length === 0 && updates.length === 0) return;
 
+    // The engine only emits creates that respect the cooldown (cues fire in
+    // the future, next-task nudges wait for the cooldown to elapse), so any
+    // create whose time has already arrived can be delivered immediately.
     const stamped: TaskNotification[] = creates.map((d) => {
       const past = new Date(d.scheduledAt).getTime() <= now.getTime();
-      const cooldownProtected =
-        past &&
-        (d.type === "task_start" || d.type === "task_reminder" || d.type === "next_task");
       return {
         ...d,
         id: uid(),
         createdAt: now.toISOString(),
-        status: cooldownProtected ? "scheduled" : past ? "delivered" : "scheduled",
-        ...(past && !cooldownProtected ? { deliveredAt: now.toISOString() } : {}),
+        status: past ? "delivered" : "scheduled",
+        ...(past ? { deliveredAt: now.toISOString() } : {}),
       };
     });
 

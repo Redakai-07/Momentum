@@ -37,8 +37,13 @@ function parseHHMM(t: string): { h: number; m: number } | null {
   return { h: Number(m[1]), m: Number(m[2]) };
 }
 
-/** Earliest relevant incomplete task for a "what's next" nudge. */
-function pickNextTask(today: string, tasks: Task[]): Task | null {
+/**
+ * Deterministic next-task selection for a "what's next" nudge.
+ * Among incomplete tasks present today, prefers the earliest scheduled start
+ * (stable tie-break by title). Only recurring daily/custom work and tasks
+ * due today qualify — one-offs without a due date are invisible to the nudge.
+ */
+export function pickNextTask(today: string, tasks: Task[]): Task | null {
   const candidates = tasks.filter(
     (t) =>
       !isTaskDone(t) &&
