@@ -87,11 +87,15 @@ export function SpecialTaskBanner({
               type="button"
               aria-label={`Show special task: ${t.title}`}
               onClick={() => setIndex(i)}
-              className={cn(
-                "h-1 rounded-full transition-all duration-300",
-                i === index ? "w-4 bg-signal/70" : "w-1 bg-muted-foreground/25 hover:bg-muted-foreground/50",
-              )}
-            />
+              className="group flex h-5 w-5 items-center justify-center rounded-full"
+            >
+              <span
+                className={cn(
+                  "h-1 rounded-full transition-all duration-300 group-hover:bg-muted-foreground/50",
+                  i === index ? "w-4 bg-signal/70" : "w-1 bg-muted-foreground/25",
+                )}
+              />
+            </button>
           ))}
         </div>
       )}

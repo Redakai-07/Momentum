@@ -27,7 +27,18 @@ Minimal UI on the surface — a real task/time/performance system underneath.
 - **Dexie.js** — typed local database (`momentum`): tasks, logs, sections, performance
 - **Recharts** — minimal profile charts
 - **lucide-react**, **clsx** + **tailwind-merge**
-- PWA-ready: manifest, theme-color, standalone meta, viewport-fit, app icon
+
+## PWA & mobile
+
+- **Installable** — manifest with `id`/`scope`/standalone display, PNG icons at
+  192/512 + a 512 maskable, apple-touch-icon, theme-color per scheme.
+- **Offline-first** — `public/sw.js` caches the app shell (fonts, icons,
+  hashed JS/CSS) and every route you visit; after the first load the app opens
+  with no connection, and data lives in IndexedDB anyway. Registering is a
+  tiny client component in the root layout (secure contexts only).
+- **Mobile-first layout** — bottom tab bar with safe-area insets on phones,
+  sidebar on `lg+`, `100dvh` frames, no double-tap-zoom delay on controls.
+- Regenerate icons from the SVG mark with `node scripts/gen-icons.mjs` (sharp).
 
 ## Scripts
 

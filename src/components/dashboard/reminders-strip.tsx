@@ -69,7 +69,7 @@ export function RemindersStrip() {
                 onClick={() => snoozeNotification(n.id)}
                 title={`Remind again in ${snoozeMinutes} minutes`}
                 aria-label={`Snooze for ${snoozeMinutes} minutes`}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <Clock3 className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>
@@ -78,7 +78,7 @@ export function RemindersStrip() {
                 onClick={() => dismissNotification(n.id)}
                 aria-label="Dismiss reminder"
                 title="Dismiss"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>

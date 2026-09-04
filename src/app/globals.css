@@ -141,6 +141,21 @@
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    overscroll-behavior-y: none;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* No double-tap zoom delay on app controls (pinch zoom still works). */
+  button,
+  a,
+  [role="button"],
+  input,
+  textarea,
+  select {
+    touch-action: manipulation;
   }
 
   ::selection {
