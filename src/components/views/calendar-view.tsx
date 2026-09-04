@@ -52,8 +52,8 @@ export function CalendarView() {
       let special = false;
       for (const t of tasks) {
         if (!taskOccursOn(t, key)) continue;
-        if (!t.completed) openCount += 1;
-        if (!t.completed && t.dueDate === key) special = true;
+        if (t.status === "active") openCount += 1;
+        if (t.status === "active" && t.dueDate === key) special = true;
       }
       return { date, key, openCount, special };
     });

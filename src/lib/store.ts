@@ -4,6 +4,11 @@ import { createSeedState } from "./seed";
 import { dateKey, todayKey } from "./date";
 import { uid } from "./utils";
 import { liveDayRec } from "./performance";
+import { applyRecoveryKinds } from "./activity";
+import { NOTIFICATION_DEFAULTS } from "./config";
+import { planNotifications } from "./notifications/engine";
+import type { TaskNotification, NotificationSettings } from "./notifications/types";
+import { isTaskDone } from "./task-state";
 import type {
   CustomSection,
   DailyPerformance,
@@ -36,27 +41,56 @@ export interface SectionInput {
   schedule: Schedule;
 }
 
-interface MomentumState {
-  /** True once IndexedDB has hydrated (or failed) and the UI can render. */
+export type NotificationSettingsPatch = Partial<NotificationSettings>;
+
+type State = {
   ready: boolean;
   tasks: Task[];
   logs: TimeLog[];
   sections: CustomSection[];
-  /** Daily performance snapshots, oldest first. */
   history: DailyPerformance[];
+  notifications: TaskNotification[];
+  notificationSettings: NotificationSettings;
+};
+
+type Actions = {
   boot: () => Promise<void>;
   addTask: (input: TaskInput) => string;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   toggleTask: (id: string, completed?: boolean) => void;
   logTime: (taskId: string, minutes: number, date?: string) => void;
+  accomplishTask: (id: string) => void;
   addCustomSection: (input: SectionInput) => void;
   removeCustomSection: (id: string) => void;
-}
+  syncNotifications: () => Promise<void>;
+  dismissNotification: (id: string) => void;
+  snoozeNotification: (id: string, minutes?: number) => void;
+  setNotificationSettings: (patch: NotificationSettingsPatch) => void;
+};
+
+export interface MomentumState extends State, Actions {}
+
+type SetFn = (partial: MomentumState | Partial<MomentumState> | ((s: MomentumState) => Partial<MomentumState>)) => void;
+type GetFn = () => MomentumState;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
+
+const defaultSettings: NotificationSettings = { ...NOTIFICATION_DEFAULTS };
+
+function mergeSettings(raw: unknown): NotificationSettings {
+  return {
+    ...defaultSettings,
+    ...(typeof raw === "object" && raw ? (raw as Partial<NotificationSettings>) : {}),
+  };
+}
+
+async function readSettings(): Promise<NotificationSettings> {
+  const row = await db.meta.get("notificationSettings");
+  return mergeSettings(row?.value);
+}
 
 const isoDay = (iso?: string): string | null => {
   if (!iso) return null;
@@ -75,11 +109,6 @@ function replaceToday(history: DailyPerformance[], rec: DailyPerformance): Daily
   return next;
 }
 
-/**
- * Snapshot one day's record to IndexedDB. Today is always recomputed from
- * the live tasks/logs; historical snapshots are only written when missing
- * so seeded past records stay stable.
- */
 async function persistDayRec(tasks: Task[], logs: TimeLog[], key: string): Promise<void> {
   const rec = liveDayRec(tasks, logs, key);
   const existing = await db.performance.get(key);
@@ -92,70 +121,23 @@ async function persistDayRec(tasks: Task[], logs: TimeLog[], key: string): Promi
   }
 }
 
-/** Recompute + persist today's snapshot and refresh in-memory history. */
-async function syncToday(set: (fn: (s: MomentumState) => Partial<MomentumState>) => void) {
-  const s = useStore.getState();
-  try {
-    const rec = liveDayRec(s.tasks, s.logs, todayKey());
-    await persistDayRec(s.tasks, s.logs, todayKey());
-    set(() => ({ history: replaceToday(s.history, rec) }));
-  } catch (err) {
-    console.error("Failed to sync today's performance:", err);
-  }
-}
-
-/**
- * A new day resets recurring tasks: yesterday's completion/partial progress
- * belongs to yesterday. One-off tasks (due dates, no schedule) keep state.
- */
-function applyDayRollover(tasks: Task[], logs: TimeLog[]): { next: Task[]; changed: Task[] } {
-  const today = todayKey();
-  const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
-  const changed: Task[] = [];
-  const next = tasks.map((t) => {
-    if (!t.schedule) return t;
-    const doneDay = isoDay(t.completedAt);
-    if (t.completed && doneDay !== null && doneDay < today) {
-      const n: Task = {
-        ...t,
-        completed: false,
-        completedAt: undefined,
-        remainingMinutes: t.estimatedMinutes,
-      };
-      changed.push(n);
-      return n;
-    }
-    if (
-      !t.completed &&
-      t.remainingMinutes < t.estimatedMinutes &&
-      !loggedToday.has(t.id) &&
-      doneDay !== today
-    ) {
-      const n: Task = { ...t, remainingMinutes: t.estimatedMinutes };
-      changed.push(n);
-      return n;
-    }
-    return t;
-  });
-  return { next, changed };
-}
-
 const logError = (where: string) => (err: unknown) => {
   console.error(`Momentum: ${where} failed to persist:`, err);
 };
 
 /* ------------------------------------------------------------------ */
-/* Store                                                               */
+/* Boot + internal sync (called through the create closure)            */
 /* ------------------------------------------------------------------ */
 
 let bootPromise: Promise<void> | null = null;
 
-async function doBoot(): Promise<void> {
-  const [taskRows, logRows, sectionRows, perfRows] = await Promise.all([
+async function doBoot(set: SetFn): Promise<void> {
+  const [taskRows, logRows, sectionRows, perfRows, notifRows] = await Promise.all([
     db.tasks.toArray(),
     db.logs.toArray(),
     db.sections.toArray(),
     db.performance.toArray(),
+    db.notifications.toArray(),
   ]);
   const seededFlag = await db.meta.get("seeded");
 
@@ -188,43 +170,112 @@ async function doBoot(): Promise<void> {
     ]);
   }
 
-  const { next, changed } = applyDayRollover(tasks, logs);
-  if (changed.length > 0) {
-    await db.tasks.bulkPut(changed);
-    tasks = next;
+  // A new day resets recurring tasks (yesterday's completion/partial is done).
+  const today = todayKey();
+  const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
+  const rolloverChanges: Task[] = [];
+  const rolledTasks: Task[] = tasks.map((t) => {
+    if (!t.schedule) return t;
+    const doneDay = isoDay(t.completedAt);
+    if (t.status === "completed" && doneDay !== null && doneDay < today) {
+      const n: Task = {
+        ...t,
+        status: "active",
+        completedAt: undefined,
+        remainingMinutes: t.estimatedMinutes,
+      };
+      rolloverChanges.push(n);
+      return n;
+    }
+    if (
+      t.status === "active" &&
+      t.remainingMinutes < t.estimatedMinutes &&
+      !loggedToday.has(t.id) &&
+      doneDay !== today
+    ) {
+      const n: Task = { ...t, remainingMinutes: t.estimatedMinutes };
+      rolloverChanges.push(n);
+      return n;
+    }
+    return t;
+  });
+  if (rolloverChanges.length > 0) {
+    await db.tasks.bulkPut(rolloverChanges);
+    tasks = rolledTasks;
   }
 
   // Make sure today has a snapshot row.
-  const today = todayKey();
   if (history.findIndex((h) => h.date === today) === -1) {
     await persistDayRec(tasks, logs, today);
     history = await db.performance.toArray();
   }
 
-  useStore.setState({ ready: true, tasks, logs, sections, history });
+  // Classify past days (recovery/inactive) and persist the decisions.
+  const classified = applyRecoveryKinds([...history], today);
+  const kindChanges = classified.filter((r, i) => {
+    const prev = history[i];
+    return prev && r.kind !== prev.kind && r.date < today;
+  });
+  if (kindChanges.length > 0) {
+    await db.performance.bulkPut(kindChanges);
+  }
+
+  const settings = await readSettings();
+  set({
+    ready: true,
+    tasks,
+    logs,
+    sections,
+    history: classified,
+    notifications: notifRows,
+    notificationSettings: settings,
+  });
 }
 
-export const useStore = create<MomentumState>((set, get) => ({
+/** Recompute + persist today's snapshot, classify, refresh state. */
+async function syncToday(get: GetFn, set: SetFn): Promise<void> {
+  const s = get();
+  try {
+    const today = todayKey();
+    const rec = liveDayRec(s.tasks, s.logs, today);
+    await persistDayRec(s.tasks, s.logs, today);
+    const merged = replaceToday(s.history, rec);
+    set({ history: applyRecoveryKinds(merged, today) });
+  } catch (err) {
+    console.error("Failed to sync today's performance:", err);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Store                                                               */
+/* ------------------------------------------------------------------ */
+
+export const useStore = create<MomentumState>()((set, get) => ({
   ready: false,
   tasks: [],
   logs: [],
   sections: [],
   history: [],
+  notifications: [],
+  notificationSettings: defaultSettings,
 
   boot: () => {
     if (!bootPromise) {
-      bootPromise = doBoot().catch(async (err) => {
-        console.error("Momentum: failed to hydrate local database:", err);
-        bootPromise = null;
-        // Surface whatever we have so the UI is never stuck on a loader.
-        const [tasks, logs, sections, history] = await Promise.all([
-          db.tasks.toArray(),
-          db.logs.toArray(),
-          db.sections.toArray(),
-          db.performance.toArray(),
-        ]);
-        useStore.setState({ ready: true, tasks, logs, sections, history });
-      });
+      bootPromise = doBoot(set)
+        .then(() => {
+          if (get().ready) return get().syncNotifications();
+        })
+        .catch(async (err) => {
+          console.error("Momentum: failed to hydrate local database:", err);
+          bootPromise = null;
+          const [tasks, logs, sections, history] = await Promise.all([
+            db.tasks.toArray(),
+            db.logs.toArray(),
+            db.sections.toArray(),
+            db.performance.toArray(),
+          ]);
+          set({ ready: true, tasks, logs, sections, history });
+        });
     }
     return bootPromise;
   },
@@ -245,11 +296,14 @@ export const useStore = create<MomentumState>((set, get) => ({
       dueDate: input.dueDate || undefined,
       priority: input.priority,
       schedule: input.schedule,
-      completed: false,
+      status: "active",
       createdAt: new Date().toISOString(),
     };
     set((s) => ({ tasks: [task, ...s.tasks] }));
-    db.tasks.add(task).then(() => syncToday(set)).catch(logError("create task"));
+    db.tasks
+      .add(task)
+      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+      .catch(logError("create task"));
     return id;
   },
 
@@ -264,67 +318,68 @@ export const useStore = create<MomentumState>((set, get) => ({
         if (
           patch.estimatedMinutes !== undefined &&
           patch.estimatedMinutes !== t.estimatedMinutes &&
-          !next.completed
+          next.status === "active"
         ) {
           const burned = t.estimatedMinutes - t.remainingMinutes;
           next.remainingMinutes = Math.max(0, next.estimatedMinutes - burned);
         }
-        if (next.completed) next.remainingMinutes = 0;
+        if (next.status !== "active") next.remainingMinutes = 0;
         return next;
       }),
     }));
     const updated = get().tasks.find((t) => t.id === id);
     if (updated) {
-      db.tasks.put(updated).then(() => syncToday(set)).catch(logError("update task"));
+      db.tasks
+        .put(updated)
+        .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+        .catch(logError("update task"));
     }
   },
 
   deleteTask: (id) => {
-    const removedLogDates = new Set(
-      get().logs.filter((l) => l.taskId === id).map((l) => l.date),
-    );
     set((s) => ({
       tasks: s.tasks.filter((t) => t.id !== id),
       logs: s.logs.filter((l) => l.taskId !== id),
     }));
-    db.transaction("rw", [db.tasks, db.logs], async () => {
+    db.transaction("rw", [db.tasks, db.logs, db.notifications], async () => {
       await db.tasks.delete(id);
       await db.logs.where("taskId").equals(id).delete();
+      await db.notifications.where("taskId").equals(id).delete();
     })
-      .then(() => {
-        if (removedLogDates.has(todayKey())) return syncToday(set);
-      })
+      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
       .catch(logError("delete task"));
   },
 
   toggleTask: (id, completed) => {
-    const state = get();
-    const task = state.tasks.find((t) => t.id === id);
-    if (!task) return;
-    const done = completed ?? !task.completed;
+    const task = get().tasks.find((t) => t.id === id);
+    if (!task || task.status === "accomplished") return;
+    const done = completed ?? !isTaskDone(task);
 
     const next: Task = done
       ? {
           ...task,
-          completed: true,
+          status: "completed",
           completedAt: task.completedAt ?? new Date().toISOString(),
           remainingMinutes: 0,
         }
       : {
           ...task,
-          completed: false,
+          status: "active",
           completedAt: undefined,
           remainingMinutes: task.estimatedMinutes,
         };
 
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
-    db.tasks.put(next).catch(logError("toggle task"));
+    db.tasks
+      .put(next)
+      .then(() => get().syncNotifications())
+      .catch(logError("toggle task"));
   },
 
   logTime: (taskId, minutes, date) => {
     const state = get();
     const task = state.tasks.find((t) => t.id === taskId);
-    if (!task || task.completed || minutes <= 0) return;
+    if (!task || isTaskDone(task) || minutes <= 0) return;
 
     const applied = Math.min(Math.round(minutes), Math.max(0, task.remainingMinutes));
     if (applied <= 0) return;
@@ -334,7 +389,7 @@ export const useStore = create<MomentumState>((set, get) => ({
     const nextTask: Task = done
       ? {
           ...task,
-          completed: true,
+          status: "completed",
           completedAt: new Date().toISOString(),
           remainingMinutes: 0,
         }
@@ -351,8 +406,27 @@ export const useStore = create<MomentumState>((set, get) => ({
       await db.tasks.put(nextTask);
       await db.logs.add(log);
     })
-      .then(() => syncToday(set))
+      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
       .catch(logError("log time"));
+  },
+
+  accomplishTask: (id) => {
+    const task = get().tasks.find((t) => t.id === id);
+    if (!task || task.status === "accomplished") return;
+    if (task.section !== "daily" && task.section !== "remainder") return;
+
+    const next: Task = {
+      ...task,
+      status: "accomplished",
+      accomplishedAt: new Date().toISOString(),
+      completedAt: task.completedAt ?? new Date().toISOString(),
+      remainingMinutes: 0,
+    };
+    set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
+    db.tasks
+      .put(next)
+      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+      .catch(logError("accomplish task"));
   },
 
   /* -------------------------- Custom sections ------------------------ */
@@ -374,13 +448,102 @@ export const useStore = create<MomentumState>((set, get) => ({
     set((s) => ({ sections: s.sections.filter((x) => x.id !== id) }));
     db.sections.delete(id).catch(logError("delete section"));
   },
+
+  /* --------------------------- Notifications ------------------------- */
+
+  syncNotifications: async () => {
+    const s = get();
+    const now = new Date();
+    const { creates, updates } = planNotifications({
+      now,
+      tasks: s.tasks,
+      logs: s.logs,
+      existing: s.notifications,
+      settings: s.notificationSettings,
+    });
+
+    if (creates.length === 0 && updates.length === 0) return;
+
+    const stamped: TaskNotification[] = creates.map((d) => {
+      const past = new Date(d.scheduledAt).getTime() <= now.getTime();
+      const cooldownProtected =
+        past &&
+        (d.type === "task_start" || d.type === "task_reminder" || d.type === "next_task");
+      return {
+        ...d,
+        id: uid(),
+        createdAt: now.toISOString(),
+        status: cooldownProtected ? "scheduled" : past ? "delivered" : "scheduled",
+        ...(past && !cooldownProtected ? { deliveredAt: now.toISOString() } : {}),
+      };
+    });
+
+    const byId = new Map(s.notifications.map((n) => [n.id, n]));
+    for (const n of updates) byId.set(n.id, n);
+    for (const n of stamped) byId.set(n.id, n);
+    const next = [...byId.values()].sort((a, b) =>
+      a.createdAt < b.createdAt ? 1 : -1,
+    );
+    set({ notifications: next });
+
+    try {
+      await db.transaction("rw", db.notifications, async () => {
+        if (updates.length > 0) await db.notifications.bulkPut(updates);
+        if (stamped.length > 0) await db.notifications.bulkAdd(stamped);
+      });
+    } catch (err) {
+      logError("sync notifications")(err);
+    }
+  },
+
+  dismissNotification: (id) => {
+    const s = get();
+    const n = s.notifications.find((x) => x.id === id);
+    if (!n || n.status === "dismissed") return;
+    const next: TaskNotification = {
+      ...n,
+      status: "dismissed",
+      dismissedAt: new Date().toISOString(),
+    };
+    set((st) => ({
+      notifications: st.notifications.map((x) => (x.id === id ? next : x)),
+    }));
+    db.notifications.put(next).catch(logError("dismiss notification"));
+  },
+
+  snoozeNotification: (id, minutes) => {
+    const s = get();
+    const n = s.notifications.find((x) => x.id === id);
+    if (!n || n.status === "dismissed" || n.status === "cancelled") return;
+    const mins = minutes ?? s.notificationSettings.snoozeMinutes;
+    const until = new Date(Date.now() + mins * 60_000);
+    const next: TaskNotification = {
+      ...n,
+      status: "snoozed",
+      scheduledAt: until.toISOString(),
+      snoozedUntil: until.toISOString(),
+    };
+    set((st) => ({
+      notifications: st.notifications.map((x) => (x.id === id ? next : x)),
+    }));
+    db.notifications.put(next).catch(logError("snooze notification"));
+  },
+
+  setNotificationSettings: (patch) => {
+    const next = { ...get().notificationSettings, ...patch };
+    set({ notificationSettings: next });
+    db.meta
+      .put({ key: "notificationSettings", value: next })
+      .then(() => get().syncNotifications())
+      .catch(logError("save notification settings"));
+  },
 }));
 
 /* ------------------------------------------------------------------ */
 /* Selectors / helpers                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Minutes logged today (any date) for a task. */
+/** Minutes logged for a task on a given date. */
 export function loggedTodayForTask(
   logs: TimeLog[],
   taskId: string,

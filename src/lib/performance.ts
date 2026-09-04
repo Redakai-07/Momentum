@@ -1,4 +1,4 @@
-import { PROFILE, type DailyPerformance, type Task, type TimeLog } from "./types";
+import { PROFILE, type DailyPerformance, type DayKind, type Task, type TimeLog } from "./types";
 import { taskOccursOn } from "./schedule";
 
 /** True when at least one time log exists for `taskId` on `date`. */
@@ -11,20 +11,30 @@ export interface DayRec {
   plannedMinutes: number;
   completedMinutes: number;
   percentage: number | null;
+  /** Classification, when known (see lib/activity.ts). */
+  kind?: DayKind;
 }
 
+/** A day with nothing planned — neutral for streaks and analytics. */
 export function isRestDay(rec: DayRec): boolean {
   return rec.plannedMinutes === 0 || rec.percentage === null;
 }
 
+/** Rest, inactive, or earned recovery — never breaks the streak. */
+export function isNeutralRec(rec: DayRec): boolean {
+  return isRestDay(rec) || rec.kind === "inactive" || rec.kind === "recovery";
+}
+
 /** Day plan/workload for tasks that occur on `key`. */
 export function workloadForTasks(tasks: Task[], key: string) {
-  const occurring = tasks.filter((t) => taskOccursOn(t, key));
+  const occurring = tasks.filter(
+    (t) => taskOccursOn(t, key) && t.status !== "accomplished",
+  );
   let planned = 0;
   let remaining = 0;
   for (const t of occurring) {
     planned += t.estimatedMinutes;
-    remaining += t.completed ? 0 : Math.max(0, t.remainingMinutes);
+    remaining += t.status === "active" ? Math.max(0, t.remainingMinutes) : 0;
   }
   const completed = Math.max(0, planned - remaining);
   return { planned, remaining, completed, count: occurring.length };
@@ -43,6 +53,7 @@ export function liveDayRec(
   let planned = 0;
   let completed = 0;
   for (const t of tasks) {
+    if (t.status === "accomplished") continue;
     if (!taskOccursOn(t, key) && !hasLogOn(logs, t.id, key)) continue;
     planned += t.estimatedMinutes;
   }
@@ -59,7 +70,7 @@ export function liveDayRec(
   };
 }
 
-/** Prefer live data (today) over mock history for a given key. */
+/** Prefer live data (today) over stored history for a given key. */
 export function pickDayRec(
   history: DailyPerformance[],
   live: DayRec | null,
@@ -78,7 +89,28 @@ export interface DayAggregate {
   percentage: number | null;
 }
 
+/**
+ * Aggregate across days that actually count: rest, inactive and earned
+ * recovery days are neutral and excluded, so a recovery day can neither
+ * break nor inflate the numbers.
+ */
 export function aggregate(recs: DayRec[]): DayAggregate {
+  let planned = 0;
+  let completed = 0;
+  for (const r of recs) {
+    if (isNeutralRec(r)) continue;
+    planned += r.plannedMinutes;
+    completed += r.completedMinutes;
+  }
+  return {
+    plannedMinutes: planned,
+    completedMinutes: completed,
+    percentage: planned > 0 ? Math.round((completed / planned) * 100) : null,
+  };
+}
+
+/** Raw planned/completed totals (all days, even recovery) for hour counts. */
+export function rawTotals(recs: DayRec[]): DayAggregate {
   const planned = recs.reduce((s, r) => s + r.plannedMinutes, 0);
   const completed = recs.reduce((s, r) => s + r.completedMinutes, 0);
   return {
@@ -89,7 +121,7 @@ export function aggregate(recs: DayRec[]): DayAggregate {
 }
 
 export function averagePercentage(recs: DayRec[]): number | null {
-  const active = recs.filter((r) => !isRestDay(r));
+  const active = recs.filter((r) => !isNeutralRec(r));
   if (active.length === 0) return null;
   return Math.round(
     active.reduce((s, r) => s + (r.percentage ?? 0), 0) / active.length,
@@ -98,9 +130,9 @@ export function averagePercentage(recs: DayRec[]): number | null {
 
 /**
  * Consistency streak. A day counts when it has planned activity and its
- * performance meets the threshold. Rest days (no plan) neither extend nor
- * break the streak. The current (in-progress) day only counts once it has
- * already crossed the threshold — a partial day never breaks the streak.
+ * performance meets the threshold. Rest days and earned recovery days neither
+ * extend nor break the streak. The current (in-progress) day only counts once
+ * it has already crossed the threshold — a partial day never breaks the streak.
  */
 export function currentStreak(recs: DayRec[], todayKey: string): number {
   const threshold = PROFILE.streakThreshold * 100;
@@ -112,7 +144,7 @@ export function currentStreak(recs: DayRec[], todayKey: string): number {
       if (r.plannedMinutes > 0 && (r.percentage ?? 0) >= threshold) streak += 1;
       continue; // partial today never breaks, never over-counts when below
     }
-    if (isRestDay(r)) continue;
+    if (isNeutralRec(r)) continue;
     if ((r.percentage ?? 0) >= threshold) streak += 1;
     else break;
   }
@@ -125,7 +157,7 @@ export function longestStreak(recs: DayRec[]): number {
   let best = 0;
   let run = 0;
   for (const r of recs) {
-    if (isRestDay(r)) continue;
+    if (isNeutralRec(r)) continue;
     if ((r.percentage ?? 0) >= threshold) {
       run += 1;
       best = Math.max(best, run);

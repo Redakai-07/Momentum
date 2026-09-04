@@ -100,7 +100,13 @@ export function StreakTile({
   );
 }
 
-export function FocusTile({ agg }: { agg: DayAggregate }) {
+export function FocusTile({
+  agg,
+  percentage,
+}: {
+  agg: DayAggregate;
+  percentage: number | null;
+}) {
   const total = formatMinutes(agg.completedMinutes);
   const [h, rest] = total.split(" ");
   return (
@@ -111,9 +117,9 @@ export function FocusTile({ agg }: { agg: DayAggregate }) {
       sub={
         <>
           {rest ?? "0m"} of{" "}
-          <span className="tnum">{formatMinutes(agg.plannedMinutes)}</span> planned —
+          <span className="tnum">{formatMinutes(agg.plannedMinutes)}</span> logged —
           weighted performance{" "}
-          <span className="tnum">{agg.percentage ?? "—"}%</span>
+          <span className="tnum">{percentage ?? "—"}%</span>
         </>
       }
     />

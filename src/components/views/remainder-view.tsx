@@ -35,11 +35,11 @@ export function RemainderView() {
   const [formOpen, setFormOpen] = useState(false);
 
   const open = useMemo(
-    () => sortRemainder(tasks.filter((t) => t.section === "remainder" && !t.completed)),
+    () => sortRemainder(tasks.filter((t) => t.section === "remainder" && t.status === "active")),
     [tasks],
   );
   const done = useMemo(
-    () => tasks.filter((t) => t.section === "remainder" && t.completed),
+    () => tasks.filter((t) => t.section === "remainder" && t.status === "completed"),
     [tasks],
   );
 

@@ -34,11 +34,16 @@ export function WeeklyRows({ recs }: { recs: WeeklyRec[] }) {
     <div className="space-y-2.5">
       {rows.map((r) => {
         const rest = r.percentage === null || r.plannedMinutes === 0;
+        const recovery = r.kind === "recovery";
         const pending = r.pending === true;
         const pct = r.percentage ?? 0;
         const ok = pct >= THRESHOLD;
         return (
-          <div key={r.date} className="flex items-center gap-3">
+          <div
+            key={r.date}
+            title={recovery ? "Recovery day — streak protected, not counted as productive" : undefined}
+            className="flex items-center gap-3"
+          >
             <span
               className={cn(
                 "w-9 shrink-0 font-mono text-[10.5px] font-medium uppercase tracking-wider",
@@ -51,10 +56,13 @@ export function WeeklyRows({ recs }: { recs: WeeklyRec[] }) {
               <div
                 className={cn(
                   "h-full rounded-[3px] transition-[width] duration-500",
-                  pending || rest ? "" : ok ? passColor : failColor,
+                  pending || rest || recovery ? "" : ok ? passColor : failColor,
                 )}
                 style={{
-                  width: pending || rest ? "0%" : `${Math.max(2, Math.min(100, pct))}%`,
+                  width:
+                    pending || rest || recovery
+                      ? "0%"
+                      : `${Math.max(2, Math.min(100, pct))}%`,
                 }}
               />
             </div>
@@ -65,12 +73,14 @@ export function WeeklyRows({ recs }: { recs: WeeklyRec[] }) {
                   ? "text-muted-foreground/30"
                   : rest
                     ? "text-muted-foreground/60"
-                    : ok
-                      ? "text-foreground/85"
-                      : "text-signal",
+                    : recovery
+                      ? "text-success/80"
+                      : ok
+                        ? "text-foreground/85"
+                        : "text-signal",
               )}
             >
-              {pending ? "—" : rest ? "rest" : `${pct}%`}
+              {pending ? "—" : rest ? "rest" : recovery ? "rec" : `${pct}%`}
             </span>
           </div>
         );
@@ -86,11 +96,12 @@ export function WeeklyRows({ recs }: { recs: WeeklyRec[] }) {
 function ChartTip(props: unknown) {
   const { active, payload, label } = (props ?? {}) as {
     active?: boolean;
-    payload?: Array<{ value?: number | null | string }>;
+    payload?: Array<{ value?: number | null | string; payload?: { kind?: string } }>;
     label?: string | number;
   };
   if (!active || !payload?.length) return null;
   const v = payload[0]?.value;
+  const kind = payload[0]?.payload?.kind;
   const d = new Date(String(label) + "T12:00:00");
   return (
     <div className="rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs shadow-soft">
@@ -98,7 +109,11 @@ function ChartTip(props: unknown) {
         {d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
       </p>
       <p className="mt-0.5 font-mono tnum text-muted-foreground">
-        {v === null || v === undefined ? "rest day" : `${v}%`}
+        {kind === "recovery"
+          ? "recovery day"
+          : v === null || v === undefined
+            ? "rest day"
+            : `${v}%`}
       </p>
     </div>
   );
@@ -106,7 +121,7 @@ function ChartTip(props: unknown) {
 
 export function DailyChart({ recs }: { recs: DayRec[] }) {
 
-  const data = recs.map((r) => ({ date: r.date, pct: r.percentage }));
+  const data = recs.map((r) => ({ date: r.date, pct: r.percentage, kind: r.kind }));
   return (
     <div className="h-[150px] w-full">
       <ResponsiveContainer width="100%" height="100%">

@@ -23,9 +23,29 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function ShellInner({ children }: { children: ReactNode }) {
   const boot = useStore((s) => s.boot);
+  const ready = useStore((s) => s.ready);
+  const syncNotifications = useStore((s) => s.syncNotifications);
+
   useEffect(() => {
     boot();
   }, [boot]);
+
+  // Reconcile the reminder queue while the app is open: every minute and on
+  // return to the tab, notifications flip from scheduled to delivered.
+  useEffect(() => {
+    if (!ready) return;
+    const id = window.setInterval(() => {
+      void syncNotifications();
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void syncNotifications();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ready, syncNotifications]);
 
   return (
     <div className="min-h-dvh">

@@ -20,11 +20,11 @@ export function OccasionalView() {
   const [formOpen, setFormOpen] = useState(false);
 
   const open = useMemo(
-    () => tasks.filter((t) => t.section === "occasional" && !t.completed),
+    () => tasks.filter((t) => t.section === "occasional" && t.status === "active"),
     [tasks],
   );
   const done = useMemo(
-    () => tasks.filter((t) => t.section === "occasional" && t.completed),
+    () => tasks.filter((t) => t.section === "occasional" && t.status === "completed"),
     [tasks],
   );
 

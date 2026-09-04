@@ -124,7 +124,7 @@ export function createSeedState(): SeedState {
     return {
       createdAt: iso(createdAtOffset ?? -20, 7, 0),
       remainingMinutes:
-        remaining ?? (rest.completed ? 0 : rest.estimatedMinutes),
+        remaining ?? (rest.status === "active" ? rest.estimatedMinutes : 0),
       ...rest,
     };
   };
@@ -141,7 +141,7 @@ export function createSeedState(): SeedState {
       nextAction: "Finish the DBMS lab 6 worksheet",
       priority: "medium",
       schedule: { type: "daily", startTime: "09:00", endTime: "09:45" },
-      completed: true,
+      status: "completed",
       completedAt: iso(0, 9, 40),
       createdAtOffset: -40,
     }),
@@ -155,7 +155,7 @@ export function createSeedState(): SeedState {
       nextAction: "Complete the 3Sum problem using the two-pointer approach",
       priority: "high",
       schedule: { type: "daily", startTime: "18:00", endTime: "19:30" },
-      completed: false,
+      status: "active",
       remaining: 60, // 30m already logged today
       createdAtOffset: -60,
     }),
@@ -169,7 +169,7 @@ export function createSeedState(): SeedState {
       nextAction: "Study Linear Regression — lecture 3",
       priority: "high",
       schedule: { type: "daily", startTime: "19:30", endTime: "21:00" },
-      completed: false,
+      status: "active",
       createdAtOffset: -52,
     }),
 
@@ -185,7 +185,7 @@ export function createSeedState(): SeedState {
       nextAction: "Find and read 2 relevant papers on the current topic",
       priority: "medium",
       schedule: { type: "daily", startTime: "20:00", endTime: "21:00" },
-      completed: false,
+      status: "active",
       createdAtOffset: -35,
     }),
 
@@ -200,7 +200,7 @@ export function createSeedState(): SeedState {
       nextAction: "Write the final abstract and upload the camera-ready PDF",
       dueDate: today,
       priority: "high",
-      completed: false,
+      status: "active",
       createdAtOffset: -14,
     }),
     T({
@@ -213,7 +213,7 @@ export function createSeedState(): SeedState {
       nextAction: "Add the ML project case study to the projects page",
       dueDate: today,
       priority: "medium",
-      completed: false,
+      status: "active",
       createdAtOffset: -9,
     }),
     T({
@@ -226,7 +226,7 @@ export function createSeedState(): SeedState {
       nextAction: "Study Linear Regression — lecture 3",
       dueDate: addDaysKey(today, 6),
       priority: "high",
-      completed: false,
+      status: "active",
       createdAtOffset: -18,
     }),
     T({
@@ -237,7 +237,7 @@ export function createSeedState(): SeedState {
       description: "The form submits but never delivers — check the service mapping.",
       dueDate: yesterday,
       priority: "low",
-      completed: false,
+      status: "active",
       createdAtOffset: -5,
     }),
     T({
@@ -247,7 +247,7 @@ export function createSeedState(): SeedState {
       estimatedMinutes: 45,
       description: "Annotate while reading. Note the architecture diagram by hand.",
       priority: "medium",
-      completed: false,
+      status: "active",
       createdAtOffset: -3,
     }),
 
@@ -258,7 +258,7 @@ export function createSeedState(): SeedState {
       section: "occasional",
       estimatedMinutes: 180,
       description: "Rewatch on a big screen. Hans Zimmer score, full volume. 🌌",
-      completed: false,
+      status: "active",
       createdAtOffset: -25,
     }),
     T({
@@ -268,7 +268,7 @@ export function createSeedState(): SeedState {
       estimatedMinutes: 0,
       description:
         "Pick from the shelf:\n- The Psychology of Money\n- Deep Work\n- Atomic Habits",
-      completed: false,
+      status: "active",
       createdAtOffset: -24,
     }),
     T({
@@ -277,7 +277,7 @@ export function createSeedState(): SeedState {
       section: "occasional",
       estimatedMinutes: 0,
       description: "Ruins at sunrise. Take the camera. Weekend trip plan needed.",
-      completed: false,
+      status: "active",
       createdAtOffset: -22,
     }),
     T({
@@ -286,8 +286,32 @@ export function createSeedState(): SeedState {
       section: "occasional",
       estimatedMinutes: 0,
       description: "Aperture, shutter speed, ISO — then a photo walk.",
-      completed: false,
+      status: "active",
       createdAtOffset: -21,
+    }),
+
+    // --- Accomplishments (permanently finished goals, kept as history) ---
+    T({
+      id: "t-accomp-mtech",
+      title: "M.Tech Software Engineering",
+      section: "remainder",
+      estimatedMinutes: 120,
+      description:
+        "Post-graduation in Software Engineering — coursework, the minor thesis and the final viva.\n\nDone is better than perfect, and this one is done.",
+      status: "accomplished",
+      accomplishedAt: iso(-55),
+      createdAtOffset: -430,
+    }),
+    T({
+      id: "t-accomp-portfolio",
+      title: "Full Stack Portfolio",
+      section: "daily",
+      estimatedMinutes: 60,
+      description:
+        "Personal site with case studies, resume and a working contact form — shipped and live.",
+      status: "accomplished",
+      accomplishedAt: iso(-10),
+      createdAtOffset: -140,
     }),
   ];
 
@@ -304,6 +328,15 @@ export function createSeedState(): SeedState {
     { id: "l-9", taskId: "t-dsa", minutes: 75, date: addDaysKey(today, -4) },
     { id: "l-10", taskId: "t-research", minutes: 60, date: addDaysKey(today, -5) },
     { id: "l-11", taskId: "t-ml", minutes: 45, date: addDaysKey(today, -6) },
+    // History for accomplished goals (kept even though the task is retired).
+    { id: "l-12", taskId: "t-accomp-mtech", minutes: 120, date: addDaysKey(today, -320) },
+    { id: "l-13", taskId: "t-accomp-mtech", minutes: 120, date: addDaysKey(today, -280) },
+    { id: "l-14", taskId: "t-accomp-mtech", minutes: 90, date: addDaysKey(today, -210) },
+    { id: "l-15", taskId: "t-accomp-mtech", minutes: 150, date: addDaysKey(today, -150) },
+    { id: "l-16", taskId: "t-accomp-mtech", minutes: 120, date: addDaysKey(today, -90) },
+    { id: "l-17", taskId: "t-accomp-portfolio", minutes: 60, date: addDaysKey(today, -18) },
+    { id: "l-18", taskId: "t-accomp-portfolio", minutes: 90, date: addDaysKey(today, -15) },
+    { id: "l-19", taskId: "t-accomp-portfolio", minutes: 60, date: addDaysKey(today, -12) },
   ];
 
   return { tasks, logs, sections, history: generateHistory() };

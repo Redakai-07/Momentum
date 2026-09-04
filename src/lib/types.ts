@@ -16,6 +16,14 @@ export type SectionKind = "daily" | "remainder" | "occasional" | "custom";
 
 export type Priority = "low" | "medium" | "high";
 
+/**
+ * Lifecycle of a task.
+ * - `active`      still part of your daily/backlog work
+ * - `completed`   finished (day-level for recurring tasks, permanent for one-offs)
+ * - `accomplished`permanently retired goal — kept as history, hidden from lists
+ */
+export type TaskStatus = "active" | "completed" | "accomplished";
+
 export interface Task {
   id: string;
   title: string;
@@ -32,9 +40,11 @@ export interface Task {
   dueDate?: string;
   priority?: Priority;
   schedule?: Schedule;
-  completed: boolean;
+  status: TaskStatus;
   createdAt: string;
   completedAt?: string;
+  /** Set when the task was permanently converted into an accomplishment. */
+  accomplishedAt?: string;
 }
 
 export interface TimeLog {
@@ -45,6 +55,9 @@ export interface TimeLog {
   date: string;
 }
 
+/** How a calendar day is treated by the performance system. */
+export type DayKind = "normal" | "recovery" | "inactive";
+
 export interface DailyPerformance {
   /** YYYY-MM-DD (local). */
   date: string;
@@ -52,6 +65,13 @@ export interface DailyPerformance {
   completedMinutes: number;
   /** 0–100, or null when the day had no planned activity ("rest day"). */
   percentage: number | null;
+  /**
+   * Classification of the day.
+   * - normal    counted normally
+   * - recovery  an earned, limited day where a missed day did not break the streak
+   * - inactive  nothing planned (neutral)
+   */
+  kind?: DayKind;
 }
 
 export interface CustomSection {
@@ -66,6 +86,5 @@ export const PROFILE = {
   name: "Venkatesh",
   /** Percentage required on a day for the streak to survive. */
   streakThreshold: 0.7,
-  bestStreak: 21,
   joined: "2026-01-12",
 } as const;

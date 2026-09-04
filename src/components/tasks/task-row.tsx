@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { parseKey } from "@/lib/date";
+import { isTaskDone, isTaskOpen } from "@/lib/task-state";
 import { CheckboxBox } from "@/components/ui/checkbox";
 
 function dueChip(task: Task) {
@@ -61,7 +62,7 @@ function dueChip(task: Task) {
 }
 
 function priorityMark(task: Task) {
-  if (!task.priority || task.priority === "medium" || task.completed) return null;
+  if (!task.priority || task.priority === "medium" || isTaskDone(task)) return null;
   return (
     <span
       className={cn(
@@ -86,15 +87,19 @@ export function TaskRow({
   rightLabel?: string;
 }) {
   const clickable = Boolean(onOpen);
-  const showNext = Boolean(task.nextAction) && !task.completed;
+  const done = isTaskDone(task);
+  const active = isTaskOpen(task);
+  const showNext = Boolean(task.nextAction) && active;
   const descriptionLine = task.description?.split("\n").find((l) => l.trim()) ?? null;
-  const secondary = !task.completed
+  const secondary = active
     ? showNext
       ? task.nextAction
       : descriptionLine
     : null;
-  const progressPct =
-    !task.completed && task.estimatedMinutes > 0
+
+  const progressPct = done
+    ? 1
+    : task.estimatedMinutes > 0
       ? Math.max(
           0,
           Math.min(
@@ -102,9 +107,7 @@ export function TaskRow({
             (task.estimatedMinutes - task.remainingMinutes) / task.estimatedMinutes,
           ),
         )
-      : task.completed
-        ? 1
-        : 0;
+      : 0;
 
   const row = (
     <div
@@ -124,22 +127,23 @@ export function TaskRow({
       }
       className={cn(
         "group flex w-full items-start gap-3 px-4 py-[11px] text-left transition-colors duration-150",
-        clickable && "cursor-pointer hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45",
+        clickable &&
+          "cursor-pointer hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45",
       )}
     >
       {onToggle && (
         <button
           type="button"
           role="checkbox"
-          aria-checked={task.completed}
-          aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`}
+          aria-checked={done}
+          aria-label={done ? `Reopen ${task.title}` : `Complete ${task.title}`}
           onClick={(e) => {
             e.stopPropagation();
             onToggle(task);
           }}
           className="mt-px rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
         >
-          <CheckboxBox checked={task.completed} />
+          <CheckboxBox checked={done} />
         </button>
       )}
 
@@ -148,7 +152,7 @@ export function TaskRow({
           <span
             className={cn(
               "truncate text-[13.5px] font-medium transition-colors",
-              task.completed
+              done
                 ? "text-muted-foreground/70 line-through decoration-muted-foreground/50"
                 : "text-foreground",
             )}
@@ -176,19 +180,21 @@ export function TaskRow({
             <span
               className={cn(
                 "font-mono text-[12.5px] tnum",
-                task.completed
+                done
                   ? "text-muted-foreground/60 line-through decoration-muted-foreground/40"
                   : "text-foreground/85",
               )}
             >
               {rightLabel ??
-                (task.completed ? formatMinutes(task.estimatedMinutes) : formatMinutes(task.remainingMinutes))}
+                (done
+                  ? formatMinutes(task.estimatedMinutes)
+                  : formatMinutes(task.remainingMinutes))}
             </span>
             <span className="mt-[7px] h-[3px] w-9 overflow-hidden rounded-full bg-muted">
               <span
                 className={cn(
                   "block h-full rounded-full transition-[width] duration-500",
-                  task.completed ? "bg-success/70" : "bg-primary/80",
+                  done ? "bg-success/70" : "bg-primary/80",
                 )}
                 style={{ width: `${Math.round(progressPct * 100)}%` }}
               />

@@ -18,6 +18,8 @@ export function scheduleOccursOn(
  * the calendar can show history.
  */
 export function taskOccursOn(task: Task, key: string): boolean {
+  // Accomplished goals left the rotation — their history lives separately.
+  if (task.status === "accomplished") return false;
   const date = parseKey(key);
   if (task.schedule) {
     return scheduleOccursOn(task.schedule, date);
@@ -57,7 +59,7 @@ export function breakdownForDay(
   const specialsDone: Task[] = [];
   for (const t of onDay) {
     if (t.section !== "daily" && t.section !== "custom" && t.dueDate === key) {
-      (t.completed ? specialsDone : specials).push(t);
+      (t.status === "completed" ? specialsDone : specials).push(t);
     }
   }
 
@@ -95,7 +97,9 @@ export function breakdownForDay(
   }
 
   const sortTasks = (a: Task, b: Task) => {
-    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    const ad = a.status === "active" ? 0 : 1;
+    const bd = b.status === "active" ? 0 : 1;
+    if (ad !== bd) return ad - bd;
     const ta = a.schedule?.startTime ?? "";
     const tb = b.schedule?.startTime ?? "";
     if (ta !== tb) return ta < tb ? -1 : 1;

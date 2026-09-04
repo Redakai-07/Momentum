@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { loggedTodayForTask, useStore } from "@/lib/store";
+import { isTaskDone } from "@/lib/task-state";
 import { Button } from "@/components/ui/button";
 
 const QUICK = [
@@ -20,8 +21,9 @@ export function TimeLogControl({ task }: { task: Task }) {
 
   const loggedToday = loggedTodayForTask(logs, task.id);
   const remaining = task.remainingMinutes;
+  const done = isTaskDone(task);
 
-  if (task.completed) {
+  if (done) {
     return (
       <div className="rounded-lg border border-border/70 bg-muted/35 px-3.5 py-3">
         <p className="text-[13px] text-muted-foreground">

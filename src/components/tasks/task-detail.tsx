@@ -1,8 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, CheckCircle2, Pencil, Trash2, X } from "lucide-react";
-
+import {
+  ArrowRight,
+  BadgeCheck,
+  CheckCircle2,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/typography";
@@ -12,6 +18,7 @@ import { formatMinutes } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { sectionLabel, scheduleSummary, timeRange } from "@/lib/labels";
 import { parseKey } from "@/lib/date";
+import { canAccomplish, isTaskAccomplished, isTaskDone } from "@/lib/task-state";
 import { cn } from "@/lib/utils";
 import { TaskFormModal } from "./task-form";
 
@@ -20,6 +27,7 @@ function NextActionBlock({ task }: { task: Task }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.nextAction ?? "");
   const value = task.nextAction ?? "";
+  const editable = task.status === "active";
 
   const save = () => {
     updateTask(task.id, { nextAction: draft.trim() || undefined });
@@ -37,7 +45,7 @@ function NextActionBlock({ task }: { task: Task }) {
         <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
           Next action
         </p>
-        {!editing && (
+        {editable && !editing && (
           <button
             type="button"
             onClick={() => {
@@ -59,7 +67,7 @@ function NextActionBlock({ task }: { task: Task }) {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") save();
-              if (e.key === "Escape") setEditing(false);
+              if (e.key === "Escape") cancel();
             }}
             placeholder="The concrete next step…"
             className="h-8 w-full rounded-md border border-input bg-card px-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-ring/60"
@@ -75,13 +83,10 @@ function NextActionBlock({ task }: { task: Task }) {
         </div>
       ) : value ? (
         <p className="mt-1.5 flex items-start gap-2 text-[13.5px] font-medium leading-snug text-foreground">
-          <ArrowRight
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal"
-            strokeWidth={2.2}
-          />
+          <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" strokeWidth={2.2} />
           {value}
         </p>
-      ) : (
+      ) : editable ? (
         <p
           className="mt-1.5 cursor-pointer text-[13px] text-muted-foreground"
           onClick={() => {
@@ -91,6 +96,8 @@ function NextActionBlock({ task }: { task: Task }) {
         >
           Add the one concrete step that moves this forward…
         </p>
+      ) : (
+        <p className="mt-1.5 text-[13px] text-muted-foreground">—</p>
       )}
     </div>
   );
@@ -107,11 +114,7 @@ function MetaLine({ task }: { task: Task }) {
   const today = todayLocalKey();
   const d = task.dueDate ? parseKey(task.dueDate) : null;
   const dueLabel = d
-    ? d.toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      })
+    ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
     : "";
 
   return (
@@ -120,6 +123,7 @@ function MetaLine({ task }: { task: Task }) {
         {label.icon ? `${label.icon} ` : ""}
         {label.title}
       </Chip>
+      {task.status === "accomplished" && <Chip tone="success">accomplished</Chip>}
       {task.estimatedMinutes > 0 && (
         <Chip tone="neutral" className="text-foreground/75">
           {formatMinutes(task.estimatedMinutes)}
@@ -128,7 +132,11 @@ function MetaLine({ task }: { task: Task }) {
       {task.priority === "high" && <Chip tone="signal">high priority</Chip>}
       {task.priority === "low" && <Chip tone="neutral">low priority</Chip>}
       {task.dueDate && d && (
-        <Chip tone={task.dueDate < today ? "danger" : task.dueDate === today ? "signal" : "neutral"}>
+        <Chip
+          tone={
+            task.dueDate < today ? "danger" : task.dueDate === today ? "signal" : "neutral"
+          }
+        >
           {task.dueDate < today ? `overdue · ${dueLabel}` : `due ${dueLabel}`}
         </Chip>
       )}
@@ -160,12 +168,25 @@ export function TaskDetailModal({
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
   const toggleTask = useStore((s) => s.toggleTask);
   const deleteTask = useStore((s) => s.deleteTask);
+  const accomplishTask = useStore((s) => s.accomplishTask);
   const [editing, setEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirm, setConfirm] = useState<null | "delete" | "accomplish">(null);
   const sections = useStore((s) => s.sections);
 
   if (!task) return null;
   const label = sectionLabel(task, sections);
+  const done = isTaskDone(task);
+  const accomplished = task.status === "accomplished";
+  const allowAccomplish = canAccomplish(task);
+
+  const accomplishedDate = accomplished
+    ? task.accomplishedAt
+      ? parseKey(task.accomplishedAt.slice(0, 10))
+      : null
+    : null;
+  const accomplishedDateLabel = accomplishedDate
+    ? accomplishedDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    : "";
 
   return (
     <>
@@ -174,24 +195,31 @@ export function TaskDetailModal({
         onClose={onClose}
         eyebrow={label.title}
         title={task.title}
-        labelledBy=""
       >
         {task.description && (
           <p className="mt-2 whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground/85">
             {task.description}
           </p>
         )}
+
+        {accomplishedDateLabel && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-success/25 bg-success/5 px-3 py-2 text-[12.5px] text-muted-foreground">
+            <BadgeCheck className="h-4 w-4 shrink-0 text-success" strokeWidth={1.75} />
+            Accomplished {accomplishedDateLabel} — kept as history, no longer scheduled.
+          </div>
+        )}
+
         <MetaLine task={task} />
         <div className="space-y-3">
           <NextActionBlock task={task} />
-          {task.estimatedMinutes > 0 && <TimeLogControl task={task} />}
+          {!accomplished && task.estimatedMinutes > 0 && <TimeLogControl task={task} />}
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-4">
-          <div>
-            {confirmDelete ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {confirm === "delete" ? (
               <div className="flex items-center gap-2">
-                <span className="text-[13px] text-destructive">Delete this task?</span>
+                <span className="text-[13px] text-destructive">Delete permanently?</span>
                 <Button
                   size="sm"
                   variant="danger"
@@ -202,47 +230,80 @@ export function TaskDetailModal({
                 >
                   Delete
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
                   Cancel
                 </Button>
               </div>
+            ) : confirm === "accomplish" ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] text-foreground/85">
+                  Finish as a permanent goal?
+                </span>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    accomplishTask(task.id);
+                    setConfirm(null);
+                    onClose();
+                  }}
+                >
+                  <BadgeCheck className="h-3.5 w-3.5" /> Accomplish
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
+                  Keep going
+                </Button>
+              </div>
             ) : (
-              <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)}>
-                <Trash2 className="h-3.5 w-3.5" /> Delete
-              </Button>
+              <>
+                <Button size="sm" variant="danger" onClick={() => setConfirm("delete")}>
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </Button>
+                {allowAccomplish && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setConfirm("accomplish")}
+                    className="text-foreground/85"
+                  >
+                    <BadgeCheck className="h-3.5 w-3.5 text-success" strokeWidth={1.75} />
+                    Accomplish
+                  </Button>
+                )}
+              </>
             )}
           </div>
+
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setEditing(true)}
+              disabled={accomplished}
+            >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </Button>
-            {task.completed ? (
-              <Button size="sm" variant="soft" onClick={() => toggleTask(task.id, false)}>
-                Reopen
+            {accomplished ? (
+              <Button size="sm" variant="soft" onClick={onClose}>
+                Close
               </Button>
             ) : (
               <Button
                 size="sm"
                 variant="primary"
-                onClick={() => toggleTask(task.id, true)}
+                onClick={() => toggleTask(task.id, !done)}
                 className={cn(task.estimatedMinutes > 0 && "font-medium")}
               >
                 <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-                {task.estimatedMinutes > 0 && task.remainingMinutes > 0
-                  ? "Complete"
-                  : "Mark done"}
+                {done ? "Reopen" : task.estimatedMinutes > 0 ? "Complete" : "Mark done"}
               </Button>
             )}
           </div>
         </div>
       </Modal>
 
-      {editing && task && (
-        <TaskFormModal
-          task={task}
-          open={editing}
-          onClose={() => setEditing(false)}
-        />
+      {editing && task && !isTaskAccomplished(task) && (
+        <TaskFormModal task={task} open={editing} onClose={() => setEditing(false)} />
       )}
     </>
   );

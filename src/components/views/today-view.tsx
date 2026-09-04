@@ -7,7 +7,7 @@ import { useNow } from "@/lib/hooks";
 import { useStore } from "@/lib/store";
 import { breakdownForDay } from "@/lib/schedule";
 import { workloadForTasks, currentStreak, liveDayRec, type DayRec } from "@/lib/performance";
-import { dateKey } from "@/lib/date";
+import { addDays, dateKey } from "@/lib/date";
 import { PROFILE } from "@/lib/types";
 import { formatMinutes, greetingForHour } from "@/lib/format";
 import { scheduleSummary } from "@/lib/labels";
@@ -18,12 +18,13 @@ import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { TaskFormModal } from "@/components/tasks/task-form";
 import { SpecialTaskBanner } from "@/components/dashboard/special-task-banner";
 import { WorkloadBar } from "@/components/dashboard/workload-bar";
+import { RemindersStrip } from "@/components/dashboard/reminders-strip";
 
 function StreakPill({ streak }: { streak: number | null }) {
   return (
     <div
       className="flex items-center gap-2.5 rounded-lg border border-signal/25 bg-signal-soft/60 px-3 py-2"
-      title={`Current streak · best ${PROFILE.bestStreak} days`}
+      title="Consistency streak — days at/above your performance threshold"
     >
       <Flame className="h-4 w-4 text-signal" fill="currentColor" strokeWidth={0} />
       <span className="tnum text-[15px] font-semibold leading-none text-signal-foreground">
@@ -53,7 +54,7 @@ function GroupSection({
   onToggle: (t: import("@/lib/types").Task) => void;
   onAdd: () => void;
 }) {
-  const open = tasks.filter((t) => !t.completed).length;
+  const open = tasks.filter((t) => t.status === "active").length;
   return (
     <section>
       <div className="mb-2 flex items-baseline justify-between gap-3 px-0.5">
@@ -93,6 +94,7 @@ export function TodayView() {
   const ready = useStore((s) => s.ready);
   const now = useNow();
   const tasks = useStore((s) => s.tasks);
+
   const sections = useStore((s) => s.sections);
   const logs = useStore((s) => s.logs);
   const history = useStore((s) => s.history);
@@ -111,19 +113,27 @@ export function TodayView() {
     const workload = workloadForTasks(tasks, key);
 
     const live = liveDayRec(tasks, logs, key);
+    // Keep the stored kind (recovery/inactive) — a recovery day must not
+    // break the streak, and rest days must stay neutral.
     const recs: DayRec[] = history.map((h) => ({
       date: h.date,
       plannedMinutes: h.plannedMinutes,
       completedMinutes: h.completedMinutes,
       percentage: h.percentage,
+      kind: h.kind,
     }));
     const streak = currentStreak([...recs, live], key);
 
     const nextActions = [...breakdown.specials, ...breakdown.groups.flatMap((g) => g.tasks)]
-      .filter((t) => !t.completed && t.nextAction)
+      .filter((t) => t.status === "active" && t.nextAction)
       .slice(0, 4);
 
-    return { key, breakdown, workload, streak, nextActions };
+    const yesterdayKey = dateKey(addDays(now, -1));
+    const recoveryYesterday = history.some(
+      (h) => h.date === yesterdayKey && h.kind === "recovery",
+    );
+
+    return { key, breakdown, workload, streak, nextActions, recoveryYesterday };
   }, [now, tasks, sections, logs, history]);
 
   const openTask = (id: string) => setSelectedId(id);
@@ -171,6 +181,13 @@ export function TodayView() {
             </div>
           </div>
 
+          {derived.recoveryYesterday && (
+            <p className="-mt-2 mb-5 flex items-center gap-2 text-[12.5px] text-muted-foreground">
+              <span className="h-1 w-1 rounded-full bg-success" />
+              Yesterday counted as a recovery day — your consistency is still intact.
+            </p>
+          )}
+
           {derived.breakdown.specials.length > 0 && (
             <div className="mb-6">
               <SpecialTaskBanner
@@ -181,6 +198,7 @@ export function TodayView() {
           )}
 
           <div className="space-y-6">
+            <RemindersStrip />
             {derived.breakdown.groups.length > 0 ? (
               derived.breakdown.groups.map((g) => (
                 <GroupSection
@@ -223,7 +241,7 @@ export function TodayView() {
               planned={derived.workload.planned}
               remaining={derived.workload.remaining}
               doneCount={derived.breakdown.specialsDone.length + derived.breakdown.groups.reduce(
-                (s, g) => s + g.tasks.filter((t) => t.completed).length,
+                (s, g) => s + g.tasks.filter((t) => t.status === "completed").length,
                 0,
               )}
               totalCount={derived.workload.count}
