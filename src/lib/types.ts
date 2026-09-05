@@ -86,8 +86,12 @@ export interface CustomSection {
  * Personal settings that are not user-configurable.
  * `streakThreshold` is the percentage required on a day for the streak to
  * survive — see lib/config.ts for the recovery-day rules.
+ *
+ * The display name is user-configurable (Profile → Settings) and persists in
+ * the meta table; this constant is only the initial fallback.
  */
+export const DEFAULT_PROFILE_NAME = "Venkatesh";
+
 export const PROFILE = {
-  name: "Venkatesh",
   streakThreshold: 0.7,
 } as const;

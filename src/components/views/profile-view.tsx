@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Layers,
   Settings2,
+  UserRound,
 } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
 import { useMounted, useNow } from "@/lib/hooks";
@@ -33,6 +34,8 @@ import { CustomSectionManager } from "@/components/profile/custom-section-manage
 import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { Segmented } from "@/components/ui/segmented";
 import { ListShell, EmptyState, ListSkeleton } from "@/components/ui/list";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/form";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
 import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -89,6 +92,54 @@ function ToggleRow({
           )}
         />
       </button>
+    </div>
+  );
+}
+
+function NameRow() {
+  const profileName = useStore((s) => s.profileName);
+  const setProfileName = useStore((s) => s.setProfileName);
+  const [draft, setDraft] = useState(profileName);
+  const [saved, setSaved] = useState(profileName);
+
+  // Keep the draft in sync if the saved name changes elsewhere.
+  if (profileName !== saved) {
+    setSaved(profileName);
+    setDraft(profileName);
+  }
+
+  const trimmed = draft.trim();
+  const dirty = trimmed.length > 0 && trimmed !== profileName;
+
+  return (
+    <div className="py-2.5">
+      <p className="text-[13.5px] font-medium text-foreground">Your name</p>
+      <p className="text-xs text-muted-foreground">
+        Shown in the daily greeting and on your profile.
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && dirty) {
+              e.preventDefault();
+              setProfileName(draft);
+            }
+          }}
+          maxLength={40}
+          placeholder="Your name"
+          aria-label="Your name"
+        />
+        <Button
+          size="sm"
+          variant="soft"
+          disabled={!dirty}
+          onClick={() => setProfileName(draft)}
+        >
+          Save
+        </Button>
+      </div>
     </div>
   );
 }
@@ -184,6 +235,7 @@ export function ProfileView() {
   const history = useStore((s) => s.history);
   const notificationSettings = useStore((s) => s.notificationSettings);
   const setNotificationSettings = useStore((s) => s.setNotificationSettings);
+  const profileName = useStore((s) => s.profileName);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -252,7 +304,7 @@ export function ProfileView() {
             Profile
           </p>
           <h1 className="text-[24px] font-semibold leading-tight tracking-tight sm:text-[28px]">
-            {PROFILE.name}
+            {profileName}
           </h1>
           {joinedLabel && (
             <p className="mt-1 text-[13px] text-muted-foreground">
@@ -358,6 +410,16 @@ export function ProfileView() {
       ) : (
         /* ------------------------------ Settings ----------------------------- */
         <div className="max-w-[680px] space-y-6">
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <UserRound className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">Profile</h2>
+            </div>
+            <div className="rounded-xl border border-border bg-card/60 px-4">
+              <NameRow />
+            </div>
+          </section>
+
           <section>
             <div className="mb-2 flex items-center gap-2">
               <Settings2 className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />

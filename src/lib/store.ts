@@ -23,14 +23,15 @@ import {
 } from "./notifications/service";
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
 import { canAccomplish, isTaskDone, toAccomplished } from "./task-state";
-import type {
-  CustomSection,
-  DailyPerformance,
-  Priority,
-  Schedule,
-  SectionKind,
-  Task,
-  TimeLog,
+import {
+  DEFAULT_PROFILE_NAME,
+  type CustomSection,
+  type DailyPerformance,
+  type Priority,
+  type Schedule,
+  type SectionKind,
+  type Task,
+  type TimeLog,
 } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -81,6 +82,8 @@ type State = {
   notificationMeta: NotificationMeta;
   /** Android/iOS permission: "granted" | "denied" | "prompt" | "prompt-with-rationale". */
   notificationPermission: string;
+  /** Display name shown in the greeting and on the profile (persisted in meta). */
+  profileName: string;
 };
 
 type Actions = {
@@ -102,6 +105,8 @@ type Actions = {
   markInteraction: () => void;
   requestNotificationPermission: () => Promise<string>;
   refreshNotificationPermission: () => Promise<void>;
+  /** Update the display name shown in the greeting and on the profile. */
+  setProfileName: (name: string) => void;
 };
 
 export interface MomentumState extends State, Actions {}
@@ -408,6 +413,7 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   const settings = await readSettings();
   const notificationMeta = await readNotificationMeta();
   const storedPermission = await readMetaValue<string>("notificationPermissionState");
+  const storedName = await readMetaValue<string>("profileName");
 
   set({
     ready: true,
@@ -419,6 +425,7 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
     notificationSettings: settings,
     notificationMeta,
     notificationPermission: storedPermission ?? (nativeAvailable() ? "prompt" : "granted"),
+    profileName: storedName ?? DEFAULT_PROFILE_NAME,
   });
 
   // App opened = the user interacted. Feed the drift math.
@@ -490,6 +497,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
   notificationSettings: defaultSettings,
   notificationMeta: {},
   notificationPermission: "prompt",
+  profileName: DEFAULT_PROFILE_NAME,
 
   boot: () => {
     if (!bootPromise) {
@@ -878,6 +886,13 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const permission = await checkPermission();
     await writeMetaValue("notificationPermissionState", permission);
     set({ notificationPermission: permission });
+  },
+
+  setProfileName: (name) => {
+    const trimmed = name.trim().slice(0, 40);
+    const next = trimmed.length > 0 ? trimmed : DEFAULT_PROFILE_NAME;
+    set({ profileName: next });
+    void writeMetaValue("profileName", next);
   },
 }));
 

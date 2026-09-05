@@ -9,7 +9,6 @@ import { useStore } from "@/lib/store";
 import { breakdownForDay } from "@/lib/schedule";
 import { workloadForTasks, currentStreak, liveDayRec, type DayRec } from "@/lib/performance";
 import { addDays, dateKey } from "@/lib/date";
-import { PROFILE } from "@/lib/types";
 import { greetingForHour } from "@/lib/format";
 import { scheduleSummary } from "@/lib/labels";
 import { ListShell, EmptyState, ListSkeleton } from "@/components/ui/list";
@@ -96,6 +95,7 @@ export function TodayView() {
   const logs = useStore((s) => s.logs);
   const history = useStore((s) => s.history);
   const toggleTask = useStore((s) => s.toggleTask);
+  const profileName = useStore((s) => s.profileName);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -171,7 +171,7 @@ export function TodayView() {
             <div className="min-w-0">
               <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-foreground sm:text-[28px]">
                 {greetingForHour(now.getHours())}
-                <span className="text-muted-foreground">,</span> {PROFILE.name}
+                <span className="text-muted-foreground">,</span> {profileName}
               </h1>
               <p className="mt-1 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 {now.toLocaleDateString("en-US", {
