@@ -18,9 +18,13 @@ const at = (key: string, h: number, m = 0): Date => {
 const settings: NotificationSettings = {
   enabled: true,
   cooldownMinutes: 30,
+  completionCooldownMinutes: 30,
   taskReminders: true,
   specialTaskReminders: true,
   overdueReminders: true,
+  quietHoursEnabled: true,
+  quietStart: "22:30",
+  quietEnd: "07:00",
   morningHour: 9,
   snoozeMinutes: 30,
 };

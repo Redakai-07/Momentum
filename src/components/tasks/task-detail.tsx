@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -21,6 +21,37 @@ import { parseKey } from "@/lib/date";
 import { canAccomplish, isTaskAccomplished, isTaskDone } from "@/lib/task-state";
 import { cn } from "@/lib/utils";
 import { TaskFormModal } from "./task-form";
+
+function TimeSummary({ task }: { task: Task }) {
+  const pct =
+    task.estimatedMinutes > 0
+      ? Math.max(
+          0,
+          Math.min(100, ((task.estimatedMinutes - task.remainingMinutes) / task.estimatedMinutes) * 100),
+        )
+      : 0;
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/25 p-3.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          Time
+        </p>
+        <p className="tnum text-[13px] text-muted-foreground">
+          <span className="font-semibold text-foreground">
+            {formatMinutes(task.remainingMinutes)}
+          </span>{" "}
+          remaining of {formatMinutes(task.estimatedMinutes)} estimated
+        </p>
+      </div>
+      <div className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-primary/75 transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 function NextActionBlock({ task }: { task: Task }) {
   const updateTask = useStore((s) => s.updateTask);
@@ -166,6 +197,12 @@ export function TaskDetailModal({
   onClose: () => void;
 }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
+  const markInteraction = useStore((s) => s.markInteraction);
+
+  // Opening a task is a meaningful interaction — the reminder gap restarts.
+  useEffect(() => {
+    if (taskId) markInteraction();
+  }, [taskId, markInteraction]);
   const toggleTask = useStore((s) => s.toggleTask);
   const deleteTask = useStore((s) => s.deleteTask);
   const accomplishTask = useStore((s) => s.accomplishTask);
@@ -211,6 +248,7 @@ export function TaskDetailModal({
 
         <MetaLine task={task} />
         <div className="space-y-3">
+          {!accomplished && task.estimatedMinutes > 0 && <TimeSummary task={task} />}
           <NextActionBlock task={task} />
           {!accomplished && task.estimatedMinutes > 0 && <TimeLogControl task={task} />}
         </div>

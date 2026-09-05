@@ -13,19 +13,12 @@ export function ServiceWorkerRegister() {
     if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
       return;
     }
-    let active = true;
-    navigator.serviceWorker
+    void navigator.serviceWorker
       .register("/sw.js")
-      .then((reg) => {
-        if (active) console.debug("Momentum: service worker registered", reg.scope);
-      })
       .catch((err) => {
         // Never block the app on a failed registration.
         console.warn("Momentum: service worker registration failed", err);
       });
-    return () => {
-      active = false;
-    };
   }, []);
 
   return null;

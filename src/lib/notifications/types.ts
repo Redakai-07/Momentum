@@ -22,10 +22,19 @@ export interface TaskNotification {
 
 export interface NotificationSettings {
   enabled: boolean;
+  /** Global quiet period (minutes) between ordinary notifications. */
   cooldownMinutes: number;
+  /** Breathing room (minutes) after meaningful activity before nudging. */
+  completionCooldownMinutes: number;
   taskReminders: boolean;
   specialTaskReminders: boolean;
   overdueReminders: boolean;
+  /** Quiet hours — ordinary reminders suppressed inside this window. */
+  quietHoursEnabled: boolean;
+  /** Local "HH:MM" (24h) start of quiet hours. */
+  quietStart: string;
+  /** Local "HH:MM" (24h) end of quiet hours. */
+  quietEnd: string;
   morningHour: number;
   snoozeMinutes: number;
 }

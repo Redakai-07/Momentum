@@ -84,7 +84,7 @@ export function CalendarView() {
       <PageHeader
         eyebrow="Schedule"
         title="Calendar"
-        sub="Dots are days with tasks. ★ marks a due date — the task becomes special that day."
+        sub="Days with tasks carry a small dot. A star marks a due date."
         aside={
           <div className="flex items-center gap-1">
             <Button
@@ -232,10 +232,10 @@ export function CalendarView() {
               <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center">
                 <CalendarDays className="mx-auto h-4 w-4 text-muted-foreground/60" strokeWidth={1.5} />
                 <p className="mt-2 text-[13px] font-medium text-muted-foreground">
-                  Nothing planned
+                  No planned activity
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground/70">
-                  A clear day — guard it.
+                  A clear day.
                 </p>
               </div>
             ) : (

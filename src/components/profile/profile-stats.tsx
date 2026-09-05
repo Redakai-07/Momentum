@@ -1,7 +1,7 @@
 "use client";
 
-import { Activity, Flame, Timer } from "lucide-react";
-import type { DayRec, DayAggregate } from "@/lib/performance";
+import { Flame, Timer } from "lucide-react";
+import type { DayRec } from "@/lib/performance";
 import type { Task, TimeLog } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -100,32 +100,6 @@ export function StreakTile({
   );
 }
 
-export function FocusTile({
-  agg,
-  percentage,
-}: {
-  agg: DayAggregate;
-  percentage: number | null;
-}) {
-  const total = formatMinutes(agg.completedMinutes);
-  const [h, rest] = total.split(" ");
-  return (
-    <StatTile
-      icon={<Activity className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />}
-      label="Focus · last 30 days"
-      value={h}
-      sub={
-        <>
-          {rest ?? "0m"} of{" "}
-          <span className="tnum">{formatMinutes(agg.plannedMinutes)}</span> logged —
-          weighted performance{" "}
-          <span className="tnum">{percentage ?? "—"}%</span>
-        </>
-      }
-    />
-  );
-}
-
 export function ActivityFeed({
   logs,
   tasks,
@@ -141,7 +115,7 @@ export function ActivityFeed({
   if (sorted.length === 0) {
     return (
       <p className="py-6 text-center text-xs text-muted-foreground">
-        No activity logged yet — the first log starts the record.
+        Complete some activity to see your progress.
       </p>
     );
   }

@@ -27,27 +27,33 @@ export const RECOVERY_RULES = {
 export const NOTIFICATION_DEFAULTS = {
   /** Master switch for all in-app task reminders. */
   enabled: true,
-  /** Minutes of quiet time after completing work before another nudge. */
-  cooldownMinutes: 30,
+  /** Global quiet period after any notification before another ordinary one. */
+  cooldownMinutes: 60,
   /** Reminders for scheduled daily/custom tasks. */
   taskReminders: true,
   /** Reminders for due-today special tasks. */
   specialTaskReminders: true,
   /** Daily nudge for overdue remainder tasks. */
   overdueReminders: true,
+  /** Quiet hours — ordinary reminders never fire in this local window. */
+  quietHoursEnabled: true,
+  quietStart: "22:30",
+  quietEnd: "07:00",
   /** Hour of day (0–23) when morning checks fire. */
   morningHour: 9,
   /** Minutes a snooze pushes a notification back by. */
   snoozeMinutes: 30,
   /** How long a task is considered "just completed" (cooldown horizon). */
-  completionCooldownMinutes: 20,
+  completionCooldownMinutes: 30,
 } as const;
 
 export const COOLDOWN_OPTIONS = [
-  { value: 15, label: "15 min" },
   { value: 30, label: "30 min" },
   { value: 60, label: "1 hour" },
+  { value: 120, label: "2 hours" },
 ] as const;
+
+export const QUIET_HOUR_STEP = 15; // minutes — time inputs snap to 15m
 
 export const NOTIFICATION_TYPES = [
   "task_start",

@@ -1,63 +1,43 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Award,
-  BadgeCheck,
-  BarChart3,
   Bell,
   BellRing,
+  CheckCircle2,
   Layers,
   Settings2,
-  ShieldCheck,
 } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
 import { useMounted, useNow } from "@/lib/hooks";
-import { useStore } from "@/lib/store";
-import { dateKey, addDays, startOfWeek, MONTHS_SHORT } from "@/lib/date";
+import { getFirstRunDate, useStore } from "@/lib/store";
+import { dateKey, addDays, startOfWeek } from "@/lib/date";
 import { PROFILE, type DailyPerformance } from "@/lib/types";
 import {
   liveDayRec,
   currentStreak,
   longestStreak,
-  aggregate,
-  rawTotals,
-  isNeutralRec,
   weeklyAggregate,
   monthlyAggregate,
   yearlyAggregate,
   type DayRec,
 } from "@/lib/performance";
-import { usedRecoveries } from "@/lib/activity";
-import { RECOVERY_RULES, COOLDOWN_OPTIONS } from "@/lib/config";
+import { COOLDOWN_OPTIONS } from "@/lib/config";
 import {
   Panel,
   WeeklyRows,
-  DailyChart,
-  AnnualBars,
-  type MonthBucket,
 } from "@/components/profile/performance-viz";
-import {
-  ActivityFeed,
-  FocusTile,
-  StreakTile,
-  TodayTile,
-} from "@/components/profile/profile-stats";
+import { ActivityFeed, StreakTile } from "@/components/profile/profile-stats";
 import { CustomSectionManager } from "@/components/profile/custom-section-manager";
 import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { Segmented } from "@/components/ui/segmented";
 import { ListShell, EmptyState, ListSkeleton } from "@/components/ui/list";
-import { Chip } from "@/components/ui/typography";
 import { useTheme, type Theme } from "@/components/theme/theme-provider";
 import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Tab = "overview" | "accomplishments" | "settings";
-
-const dateLabel = (key: string) => {
-  const d = new Date(key + "T12:00:00");
-  return `${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
-};
 
 function historyRec(h: DailyPerformance): DayRec {
   return {
@@ -113,12 +93,91 @@ function ToggleRow({
   );
 }
 
+function PermissionRow() {
+  const permission = useStore((s) => s.notificationPermission);
+  const requestPermission = useStore((s) => s.requestNotificationPermission);
+  const refreshPermission = useStore((s) => s.refreshNotificationPermission);
+
+  const permissionEnabled = permission === "granted";
+
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div>
+        <p className="text-[13.5px] font-medium text-foreground">Android/iOS notifications</p>
+        <p className="text-xs text-muted-foreground">
+          {permissionEnabled
+            ? "Permission granted — reminders can be delivered by the system."
+            : "Allow notification permission to receive reminders when Momentum is in the background."}
+        </p>
+      </div>
+      {permissionEnabled ? (
+        <span className="shrink-0 rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">
+          On
+        </span>
+      ) : permission === "denied" ? (
+        <button
+          type="button"
+          onClick={() => void refreshPermission()}
+          className="shrink-0 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+        >
+          Check again
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void requestPermission()}
+          className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          Allow
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PeriodGrid({
+  today,
+  week,
+  month,
+  year,
+}: {
+  today: DayRec;
+  week: { percentage: number | null; completedMinutes: number; plannedMinutes: number };
+  month: { percentage: number | null; completedMinutes: number; plannedMinutes: number };
+  year: { percentage: number | null; completedMinutes: number; plannedMinutes: number };
+}) {
+  const cells = [
+    { label: "Today", agg: today, tone: "default" as const },
+    { label: "Week", agg: week, tone: "default" as const },
+    { label: "Month", agg: month, tone: "default" as const },
+    { label: "Year", agg: year, tone: "default" as const },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {cells.map((c) => (
+        <div key={c.label} className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
+          <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            {c.label}
+          </p>
+          <p className="mt-1.5 tnum text-[26px] font-semibold leading-none tracking-tight text-foreground">
+            {c.agg.percentage === null ? "—" : `${c.agg.percentage}%`}
+          </p>
+          <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
+            {formatMinutes(c.agg.completedMinutes)} of {formatMinutes(c.agg.plannedMinutes)}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ProfileView() {
   const mounted = useMounted();
   const ready = useStore((s) => s.ready);
   const now = useNow();
   const [tab, setTab] = useState<Tab>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [joined, setJoined] = useState<string | null>(null);
 
   const tasks = useStore((s) => s.tasks);
   const logs = useStore((s) => s.logs);
@@ -126,6 +185,10 @@ export function ProfileView() {
   const notificationSettings = useStore((s) => s.notificationSettings);
   const setNotificationSettings = useStore((s) => s.setNotificationSettings);
   const { theme, setTheme } = useTheme();
+
+  useEffect(() => {
+    if (!joined) void getFirstRunDate().then(setJoined);
+  }, [joined]);
 
   const today = useMemo(() => (mounted && now ? dateKey(now) : null), [mounted, now]);
 
@@ -151,37 +214,14 @@ export function ProfileView() {
       );
     }
 
-    const last30 = all.filter((r) => r.date > addDaysKey(today, -30) && r.date <= today);
-
     const weekly = weeklyAggregate(all, today);
     const monthly = monthlyAggregate(all, today);
     const yearly = yearlyAggregate(all, today);
-    const roll30 = aggregate(last30);
-    const totals30 = rawTotals(last30);
     const streak = currentStreak(all, today);
     const best = Math.max(longestStreak(hist), streak);
 
-    const chart: DayRec[] = [];
-    for (let i = 29; i >= 0; i--) chart.push(get(addDaysKey(today, -i)));
-
-    const buckets: MonthBucket[] = [];
-    for (let m = 0; m < 12; m++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - (11 - m), 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const recs = all.filter((r) => r.date.slice(0, 7) === key);
-      const agg = aggregate(recs);
-      buckets.push({ key, label: dateLabel(`${key}-01`), percentage: agg.percentage, planned: agg.plannedMinutes });
-    }
-
-    return { live, weekRows, weekly, monthly, yearly, roll30, totals30, streak, best, chart, buckets, all };
+    return { live, weekRows, weekly, monthly, yearly, streak, best };
   }, [today, history, tasks, logs, now]);
-
-  const todayRec = data?.live;
-  const doneCount30 = data
-    ? data.all
-        .filter((r) => r.date >= addDaysKey(today!, -30) && !isNeutralRec(r) && r.completedMinutes > 0)
-        .length
-    : 0;
 
   const accomplishments = useMemo(
     () =>
@@ -197,30 +237,32 @@ export function ProfileView() {
     return map;
   }, [logs]);
 
-  const monthRecoveries = data && today ? usedRecoveries(data.all, today.slice(0, 7)) : 0;
+  const joinedLabel = joined
+    ? new Date(joined + "T12:00:00").toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+      })
+    : null;
 
   return (
-    <PageFrame wide>
-      <div className="mb-7 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+    <PageFrame>
+      <div className="mb-6 flex items-end justify-between gap-x-6 gap-y-3">
         <div>
           <p className="mb-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Personal report
+            Profile
           </p>
-          <h1 className="flex items-center gap-3 text-[26px] font-semibold leading-tight tracking-tight sm:text-[30px]">
+          <h1 className="text-[24px] font-semibold leading-tight tracking-tight sm:text-[28px]">
             {PROFILE.name}
-            <span className="mt-0.5 hidden h-2 w-2 rounded-full bg-success sm:block" />
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Building momentum since{" "}
-            {new Date(PROFILE.joined + "T12:00:00").toLocaleDateString("en-US", {
-              month: "long",
-              year: "numeric",
-            })}
-          </p>
+          {joinedLabel && (
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Using Momentum since {joinedLabel}
+            </p>
+          )}
         </div>
         <Segmented<Tab>
           options={[
-            { value: "overview", label: "Overview" },
+            { value: "overview", label: "Performance" },
             { value: "accomplishments", label: "Accomplishments" },
             { value: "settings", label: "Settings" },
           ]}
@@ -229,94 +271,37 @@ export function ProfileView() {
         />
       </div>
 
-      {!mounted || !ready || !data || !todayRec ? (
+      {!mounted || !ready || !data || !data.live ? (
         <ListSkeleton rows={6} />
       ) : tab === "overview" ? (
         /* ----------------------------- Overview ----------------------------- */
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="min-w-0 space-y-5">
-            <Panel
-              eyebrow="This week"
-              title="Daily performance"
-              right={
-                <span className="font-mono text-xs tnum text-muted-foreground">
-                  threshold {Math.round(PROFILE.streakThreshold * 100)}%
-                </span>
-              }
-            >
-              <WeeklyRows recs={data.weekRows} />
-            </Panel>
+        <div className="space-y-5">
+          <StreakTile current={data.streak} best={data.best} />
 
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Week", agg: data.weekly },
-                { label: "Month", agg: data.monthly },
-                { label: "Year", agg: data.yearly },
-              ].map((x) => (
-                <div key={x.label} className="rounded-xl border border-border bg-card/60 px-3.5 py-3">
-                  <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                    {x.label}
-                  </p>
-                  <p className="mt-1.5 tnum text-xl font-semibold tracking-tight text-foreground">
-                    {x.agg.percentage === null ? "—" : `${x.agg.percentage}%`}
-                  </p>
-                  <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                    {formatMinutes(x.agg.completedMinutes)} of{" "}
-                    {formatMinutes(x.agg.plannedMinutes)}
-                  </p>
-                </div>
-              ))}
+          <PeriodGrid
+            today={data.live}
+            week={data.weekly}
+            month={data.monthly}
+            year={data.yearly}
+          />
+
+          <Panel
+            eyebrow="This week"
+            title="Daily performance"
+            right={
+              <span className="font-mono text-xs tnum text-muted-foreground">
+                threshold {Math.round(PROFILE.streakThreshold * 100)}%
+              </span>
+            }
+          >
+            <WeeklyRows recs={data.weekRows} />
+          </Panel>
+
+          <Panel eyebrow="Recent" title="Activity">
+            <div className="max-h-64 overflow-y-auto">
+              <ActivityFeed logs={logs} tasks={tasks} />
             </div>
-
-            <Panel eyebrow="Last 30 days" title="Performance trend">
-              <DailyChart recs={data.chart} />
-            </Panel>
-
-            <Panel eyebrow="Annual" title="Performance by month">
-              <AnnualBars buckets={data.buckets} />
-            </Panel>
-          </div>
-
-          <div className="min-w-0 space-y-4">
-            <TodayTile rec={todayRec} />
-            <StreakTile current={data.streak} best={data.best} />
-            <FocusTile agg={data.totals30} percentage={data.roll30.percentage} />
-            <div className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
-              <div className="flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
-                <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  Active days · last 30
-                </p>
-              </div>
-              <p className="mt-1.5 tnum text-[26px] font-semibold leading-none tracking-tight text-foreground">
-                {doneCount30}
-                <span className="ml-1 text-sm font-normal text-muted-foreground">/ 30</span>
-              </p>
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Days with logged work that counts toward your record.
-              </p>
-            </div>
-            <div className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
-              <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Recovery days · this month
-              </p>
-              <p className="mt-1.5 tnum text-[26px] font-semibold leading-none tracking-tight text-foreground">
-                {monthRecoveries}
-                <span className="ml-1 text-sm font-normal text-muted-foreground">
-                  / {RECOVERY_RULES.maximumRecoveryDaysPerMonth} allowed
-                </span>
-              </p>
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Earned by {RECOVERY_RULES.minimumConsistencyDays} good days, then a missed day
-                keeps your streak.
-              </p>
-            </div>
-            <Panel eyebrow="Activity" title="Recent logs" className="p-0 sm:p-0">
-              <div className="max-h-72 overflow-y-auto px-4 py-2">
-                <ActivityFeed logs={logs} tasks={tasks} />
-              </div>
-            </Panel>
-          </div>
+          </Panel>
         </div>
       ) : tab === "accomplishments" ? (
         /* ------------------------- Accomplishments -------------------------- */
@@ -335,7 +320,7 @@ export function ProfileView() {
             <EmptyState
               icon={<Award className="h-4 w-4" strokeWidth={1.5} />}
               title="No accomplishments yet"
-              body="When a daily routine or a remainder goal is truly finished — DSA prep, a course, a long project — accomplish it from the task details and it will be kept here as history."
+              body="Finish a daily routine or a remainder task permanently from its details, and it will be kept here."
             />
           ) : (
             <ListShell>
@@ -346,11 +331,9 @@ export function ProfileView() {
                     key={t.id}
                     type="button"
                     onClick={() => setSelectedId(t.id)}
-                    className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45"
+                    className="flex w-full items-center gap-3.5 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45"
                   >
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-success/30 bg-success/5 text-success">
-                      <BadgeCheck className="h-4 w-4" strokeWidth={2} />
-                    </span>
+                    <CheckCircle2 className="h-[18px] w-[18px] shrink-0 text-success" strokeWidth={1.75} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-medium text-foreground">
                         {t.title}
@@ -366,18 +349,11 @@ export function ProfileView() {
                         )}
                       </span>
                     </span>
-                    <Chip tone="neutral" className="hidden sm:inline-flex">
-                      {dateLabel((t.accomplishedAt ?? "").slice(0, 10))}
-                    </Chip>
                   </button>
                 );
               })}
             </ListShell>
           )}
-          <p className="mt-3 px-0.5 text-xs leading-relaxed text-muted-foreground">
-            Accomplished goals are removed from your active lists but keep their description,
-            estimate and every logged minute — a quiet record of work you actually finished.
-          </p>
         </div>
       ) : (
         /* ------------------------------ Settings ----------------------------- */
@@ -415,20 +391,20 @@ export function ProfileView() {
               <ToggleRow
                 checked={notificationSettings.enabled}
                 onChange={(v) => setNotificationSettings({ enabled: v })}
-                label="Task reminders"
-                sub="Context-aware nudges — never twice, never during a cooldown."
+                label="Notifications"
+                sub="Master switch for local task reminders."
               />
               <ToggleRow
                 checked={notificationSettings.taskReminders}
                 onChange={(v) => setNotificationSettings({ taskReminders: v })}
-                label="Scheduled task cues"
-                sub="Start + wrap-up reminders for daily routines."
+                label="Daily reminders"
+                sub="A gentle nudge when the day&apos;s plan is still waiting."
               />
               <ToggleRow
                 checked={notificationSettings.specialTaskReminders}
                 onChange={(v) => setNotificationSettings({ specialTaskReminders: v })}
-                label="Special task reminders"
-                sub="A morning nudge for tasks due today."
+                label="Special / due reminders"
+                sub="For tasks due today — even during the quiet period."
               />
               <ToggleRow
                 checked={notificationSettings.overdueReminders}
@@ -436,11 +412,44 @@ export function ProfileView() {
                 label="Overdue reminders"
                 sub="One quiet check each morning for overdue work."
               />
+              <ToggleRow
+                checked={notificationSettings.quietHoursEnabled}
+                onChange={(v) => setNotificationSettings({ quietHoursEnabled: v })}
+                label="Quiet hours"
+                sub="No ordinary reminders while you sleep."
+              />
+
               <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <div>
-                  <p className="text-[13.5px] font-medium text-foreground">Quiet period after a task</p>
+                  <p className="text-[13.5px] font-medium text-foreground">Quiet hours window</p>
                   <p className="text-xs text-muted-foreground">
-                    No new nudges until this long after you complete something.
+                    Ordinary reminders are suppressed between these times.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="time"
+                    value={notificationSettings.quietStart}
+                    onChange={(e) => setNotificationSettings({ quietStart: e.target.value })}
+                    aria-label="Quiet hours start"
+                    className="h-8 w-[104px] rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  />
+                  <span className="text-xs text-muted-foreground">→</span>
+                  <input
+                    type="time"
+                    value={notificationSettings.quietEnd}
+                    onChange={(e) => setNotificationSettings({ quietEnd: e.target.value })}
+                    aria-label="Quiet hours end"
+                    className="h-8 w-[104px] rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-[13.5px] font-medium text-foreground">Reminder cooldown</p>
+                  <p className="text-xs text-muted-foreground">
+                    How long Momentum waits before another ordinary nudge.
                   </p>
                 </div>
                 <Segmented
@@ -453,10 +462,12 @@ export function ProfileView() {
                   onChange={(v) => setNotificationSettings({ cooldownMinutes: Number(v) })}
                 />
               </div>
+
+              <PermissionRow />
+
               <p className="py-3 text-xs leading-relaxed text-muted-foreground">
                 <Bell className="mr-1 inline h-3 w-3" />
-                Reminders are scheduled locally on this device. Native push will hook into
-                this queue when the app ships as a PWA/mobile app — no engine changes needed.
+                Reminders are scheduled locally on this device and work offline.
               </p>
             </div>
           </section>
@@ -465,32 +476,30 @@ export function ProfileView() {
             <div className="flex items-center gap-2 px-0.5">
               <Layers className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
               <h2 className="text-sm font-semibold tracking-tight text-foreground">
-                Sections
+                My sections
               </h2>
             </div>
             <CustomSectionManager />
           </section>
 
           <section className="rounded-xl border border-dashed border-border px-4 py-4">
-            <p className="flex items-center gap-2 text-[13px] font-medium text-foreground">
-              <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
-              Streak &amp; recovery rules
-            </p>
+            <p className="text-[13px] font-medium text-foreground">Streak &amp; recovery rules</p>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               A normal day keeps your streak at{" "}
               <span className="tnum font-mono text-foreground/80">
                 {Math.round(PROFILE.streakThreshold * 100)}%
               </span>{" "}
-              of planned time. Rest days (nothing planned) are neutral. If you miss a day
-              after{" "}
-              <span className="tnum font-mono text-foreground/80">
-                {RECOVERY_RULES.minimumConsistencyDays}
-              </span>{" "}
-              qualifying days, it counts as a recovery day instead of a break — up to{" "}
-              <span className="tnum font-mono text-foreground/80">
-                {RECOVERY_RULES.maximumRecoveryDaysPerMonth}
-              </span>{" "}
-              per month. Recovery days protect consistency without counting as productive.
+              of planned time. Rest days (nothing planned) are neutral. A missed day after
+              sustained good days can count as a recovery day instead of a break, up to two per
+              month — protecting consistency without pretending the day was productive.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-dashed border-border px-4 py-4">
+            <p className="text-[13px] font-medium text-foreground">Your data</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Everything lives in this app&apos;s local database on this device. No account, no
+              cloud, no tracking — Momentum works fully offline.
             </p>
           </section>
 
@@ -503,10 +512,4 @@ export function ProfileView() {
       <TaskDetailModal taskId={selectedId} onClose={() => setSelectedId(null)} />
     </PageFrame>
   );
-}
-
-function addDaysKey(key: string, days: number): string {
-  const [y, m, d] = key.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + days);
-  return dateKey(dt);
 }

@@ -1,12 +1,26 @@
 import { create } from "zustand";
 import { db } from "./db";
-import { createSeedState } from "./seed";
 import { dateKey, todayKey } from "./date";
 import { uid } from "./utils";
 import { liveDayRec } from "./performance";
 import { applyRecoveryKinds } from "./activity";
-import { NOTIFICATION_DEFAULTS } from "./config";
-import { planNotifications } from "./notifications/engine";
+import { COOLDOWN_OPTIONS, NOTIFICATION_DEFAULTS } from "./config";
+import { planNotifications, notificationMessage } from "./notifications/engine";
+import {
+  shouldNotify,
+  isQuietHours,
+  type DecisionContext,
+} from "./notifications/decision";
+import {
+  checkPermission,
+  requestPermission,
+  resyncNative,
+  onNativeNotification,
+  nativeAvailable,
+  nativeIdForKey,
+  ensureChannel,
+  type NativeNotifRecord,
+} from "./notifications/service";
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
 import { canAccomplish, isTaskDone, toAccomplished } from "./task-state";
 import type {
@@ -43,6 +57,18 @@ export interface SectionInput {
 
 export type NotificationSettingsPatch = Partial<NotificationSettings>;
 
+/**
+ * Persistent timestamps that drive the notification intelligence.
+ * All values are ISO strings; stored in the meta table so they survive
+ * restarts, phone reboots and process kills.
+ */
+export interface NotificationMeta {
+  lastNotificationAt?: string;
+  lastMeaningfulActivityAt?: string;
+  lastTaskCompletionAt?: string;
+  lastInteractionAt?: string;
+}
+
 type State = {
   ready: boolean;
   tasks: Task[];
@@ -51,6 +77,10 @@ type State = {
   history: DailyPerformance[];
   notifications: TaskNotification[];
   notificationSettings: NotificationSettings;
+  /** Notification intelligence timestamps (persisted in meta). */
+  notificationMeta: NotificationMeta;
+  /** Android/iOS permission: "granted" | "denied" | "prompt" | "prompt-with-rationale". */
+  notificationPermission: string;
 };
 
 type Actions = {
@@ -64,9 +94,14 @@ type Actions = {
   addCustomSection: (input: SectionInput) => void;
   removeCustomSection: (id: string) => void;
   syncNotifications: () => Promise<void>;
+  syncNativeNotifications: () => Promise<void>;
   dismissNotification: (id: string) => void;
   snoozeNotification: (id: string, minutes?: number) => void;
   setNotificationSettings: (patch: NotificationSettingsPatch) => void;
+  /** Record that the user interacted (app open, task open) — feeds the gap logic. */
+  markInteraction: () => void;
+  requestNotificationPermission: () => Promise<string>;
+  refreshNotificationPermission: () => Promise<void>;
 };
 
 export interface MomentumState extends State, Actions {}
@@ -81,15 +116,61 @@ type GetFn = () => MomentumState;
 const defaultSettings: NotificationSettings = { ...NOTIFICATION_DEFAULTS };
 
 function mergeSettings(raw: unknown): NotificationSettings {
-  return {
+  const merged: NotificationSettings = {
     ...defaultSettings,
     ...(typeof raw === "object" && raw ? (raw as Partial<NotificationSettings>) : {}),
   };
+  // Clamp legacy values into the supported cooldown set so old installs
+  // never keep a 15-minute spammy default.
+  if (!COOLDOWN_OPTIONS.some((o) => o.value === merged.cooldownMinutes)) {
+    merged.cooldownMinutes = defaultSettings.cooldownMinutes;
+  }
+  return merged;
 }
 
 async function readSettings(): Promise<NotificationSettings> {
   const row = await db.meta.get("notificationSettings");
   return mergeSettings(row?.value);
+}
+
+async function readMetaValue<T>(key: string): Promise<T | undefined> {
+  try {
+    const row = await db.meta.get(key);
+    return row?.value as T | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeMetaValue(key: string, value: unknown): Promise<void> {
+  try {
+    await db.meta.put({ key, value });
+  } catch {
+    /* meta writes are best-effort */
+  }
+}
+
+async function readNotificationMeta(): Promise<NotificationMeta> {
+  const [lastNotificationAt, lastMeaningfulActivityAt, lastTaskCompletionAt, lastInteractionAt] =
+    await Promise.all([
+      readMetaValue<string>("lastNotificationAt"),
+      readMetaValue<string>("lastMeaningfulActivityAt"),
+      readMetaValue<string>("lastTaskCompletionAt"),
+      readMetaValue<string>("lastInteractionAt"),
+    ]);
+  return { lastNotificationAt, lastMeaningfulActivityAt, lastTaskCompletionAt, lastInteractionAt };
+}
+
+/** Real date the user first opened the app (persisted once, on first boot). */
+export async function getFirstRunDate(): Promise<string | null> {
+  try {
+    const row = await db.meta.get("firstRunAt");
+    const v = row?.value;
+    if (typeof v === "string" && v.length >= 10) return v.slice(0, 10);
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 const isoDay = (iso?: string): string | null => {
@@ -126,12 +207,132 @@ const logError = (where: string) => (err: unknown) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Native notification helpers                                         */
+/* ------------------------------------------------------------------ */
+
+const isOrdinaryType = (t: string) =>
+  t === "task_start" || t === "task_reminder" || t === "next_task";
+
+/** Minutes since an ISO timestamp (Infinity when missing). */
+function minutesSince(iso: string | null | undefined, now: Date): number {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((now.getTime() - ms) / 60_000));
+}
+
+/**
+ * Earliest sensible delivery time for an ordinary reminder: at least
+ * 30 minutes out, past the global cooldown, and outside quiet hours.
+ */
+function nextOrdinarySlot(
+  now: Date,
+  settings: NotificationSettings,
+  lastNotificationAt?: string,
+): Date | null {
+  let t = new Date(now.getTime() + 30 * 60_000);
+  const cooldownEnd = lastNotificationAt
+    ? new Date(new Date(lastNotificationAt).getTime() + settings.cooldownMinutes * 60_000)
+    : null;
+  if (cooldownEnd && t.getTime() < cooldownEnd.getTime()) t = cooldownEnd;
+  for (let i = 0; i < 24 * 4; i++) {
+    if (!isQuietHours(t, settings)) return t;
+    t = new Date(t.getTime() + 15 * 60_000);
+  }
+  return null;
+}
+
+/**
+ * Build the native schedule: per-task cues from the in-app queue (filtered
+ * through quiet hours + completion cooldown) plus one possible ordinary
+ * drift reminder chosen by the decision engine. Deterministic + deduped.
+ */
+function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
+  const s = get();
+  const settings = s.notificationSettings;
+  const today = dateKey(now);
+  const records: NativeNotifRecord[] = [];
+
+  const { creates } = planNotifications({
+    now,
+    tasks: s.tasks,
+    logs: s.logs,
+    existing: s.notifications,
+    settings,
+  });
+
+  for (const c of creates) {
+    const fireAt = new Date(c.scheduledAt);
+    const task = s.tasks.find((t) => t.id === c.taskId);
+    if (!task || task.status !== "active") continue;
+
+    // Ordinary reminders: quiet hours + breathing room after activity.
+    if (isOrdinaryType(c.type)) {
+      if (isQuietHours(fireAt, settings)) continue;
+      const recentActivity = Math.min(
+        minutesSince(s.notificationMeta.lastMeaningfulActivityAt, now),
+        minutesSince(s.notificationMeta.lastTaskCompletionAt, now),
+      );
+      if (recentActivity < settings.completionCooldownMinutes) continue;
+    }
+
+    const body =
+      c.type === "next_task"
+        ? task.nextAction
+          ? `Next: ${task.nextAction}`
+          : notificationMessage(c, task.title)
+        : notificationMessage(c, task.title);
+
+    records.push({
+      id: nativeIdForKey(`${c.taskId}:${c.type}:${c.date}`),
+      key: `${c.taskId}:${c.type}:${c.date}`,
+      title: task.title,
+      body,
+      at: fireAt,
+    });
+  }
+
+  // Ordinary drift reminder — the decision engine decides, deduped per day.
+  const decisionCtx: DecisionContext = {
+    now,
+    tasks: s.tasks,
+    logs: s.logs,
+    settings,
+    lastNotificationAt: s.notificationMeta.lastNotificationAt,
+    lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
+    lastTaskCompletionAt: s.notificationMeta.lastTaskCompletionAt,
+    lastInteractionAt: s.notificationMeta.lastInteractionAt,
+  };
+  const decision = shouldNotify(decisionCtx);
+  if (decision.shouldNotify && decision.priority !== "high") {
+    const at = nextOrdinarySlot(now, settings, s.notificationMeta.lastNotificationAt);
+    if (at) {
+      records.push({
+        id: nativeIdForKey(`ordinary:${today}`),
+        key: `ordinary:${today}`,
+        title: "Momentum",
+        body: decision.message ?? "You still have planned work waiting.",
+        at,
+      });
+    }
+  }
+
+  return records;
+}
+
+const devLog = (msg: string, data?: unknown) => {
+  if (process.env.NODE_ENV !== "production") {
+    console.debug(`[notifications] ${msg}`, data ?? "");
+  }
+};
+
+/* ------------------------------------------------------------------ */
 /* Boot + internal sync (called through the create closure)            */
 /* ------------------------------------------------------------------ */
 
 let bootPromise: Promise<void> | null = null;
 
-async function doBoot(set: SetFn): Promise<void> {
+async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   const [taskRows, logRows, sectionRows, perfRows, notifRows] = await Promise.all([
     db.tasks.toArray(),
     db.logs.toArray(),
@@ -139,35 +340,19 @@ async function doBoot(set: SetFn): Promise<void> {
     db.performance.toArray(),
     db.notifications.toArray(),
   ]);
-  const seededFlag = await db.meta.get("seeded");
-
   let tasks = taskRows;
-  let logs = logRows;
-  let sections = sectionRows;
+  const logs = logRows;
+  const sections = sectionRows;
   let history = perfRows;
 
-  // First run — install the example workspace exactly once.
-  if (tasks.length === 0 && !seededFlag?.value) {
-    const seed = createSeedState();
-    await db.transaction(
-      "rw",
-      [db.tasks, db.logs, db.sections, db.performance, db.meta],
-      async () => {
-        if ((await db.tasks.count()) === 0) {
-          if (seed.tasks.length > 0) await db.tasks.bulkAdd(seed.tasks);
-          if (seed.logs.length > 0) await db.logs.bulkAdd(seed.logs);
-          if (seed.sections.length > 0) await db.sections.bulkAdd(seed.sections);
-          if (seed.history.length > 0) await db.performance.bulkAdd(seed.history);
-          await db.meta.put({ key: "seeded", value: 1 });
-        }
-      },
-    );
-    [tasks, logs, sections, history] = await Promise.all([
-      db.tasks.toArray(),
-      db.logs.toArray(),
-      db.sections.toArray(),
-      db.performance.toArray(),
-    ]);
+  // First run — the workspace starts completely empty. Just remember when
+  // the user joined so the profile can show a real date.
+  const firstRun = await db.meta.get("firstRunAt");
+  if (!firstRun) {
+    await db.meta.put({ key: "firstRunAt", value: new Date().toISOString() });
+  }
+  if (!(await db.meta.get("notificationSettings"))) {
+    await db.meta.put({ key: "notificationSettings", value: defaultSettings });
   }
 
   // A new day resets recurring tasks (yesterday's completion/partial is done).
@@ -221,6 +406,9 @@ async function doBoot(set: SetFn): Promise<void> {
   }
 
   const settings = await readSettings();
+  const notificationMeta = await readNotificationMeta();
+  const storedPermission = await readMetaValue<string>("notificationPermissionState");
+
   set({
     ready: true,
     tasks,
@@ -229,7 +417,49 @@ async function doBoot(set: SetFn): Promise<void> {
     history: classified,
     notifications: notifRows,
     notificationSettings: settings,
+    notificationMeta,
+    notificationPermission: storedPermission ?? (nativeAvailable() ? "prompt" : "granted"),
   });
+
+  // App opened = the user interacted. Feed the drift math.
+  const now = new Date();
+  if (
+    !notificationMeta.lastInteractionAt ||
+    now.getTime() - new Date(notificationMeta.lastInteractionAt).getTime() > 60_000
+  ) {
+    const meta = { ...notificationMeta, lastInteractionAt: now.toISOString() };
+    void writeMetaValue("lastInteractionAt", meta.lastInteractionAt);
+    set({ notificationMeta: meta });
+  }
+
+  // Native delivery listeners + first permission request (only when there is
+  // actual content to remind about, so a fresh install stays silent).
+  if (nativeAvailable()) {
+    void ensureChannel();
+    onNativeNotification({
+      received: (record) => {
+        devLog("native notification received", record.key);
+        const receivedAt = new Date().toISOString();
+        void writeMetaValue("lastNotificationAt", receivedAt);
+        set((s) => ({
+          notificationMeta: { ...s.notificationMeta, lastNotificationAt: receivedAt },
+        }));
+        void get().syncNativeNotifications();
+      },
+    });
+
+    // First use: ask once, only when the user actually has content to be
+    // reminded about. Never nudge a brand-new empty workspace.
+    const permission = storedPermission ?? (nativeAvailable() ? "prompt" : "granted");
+    if (permission === "prompt" && tasks.length > 0) {
+      const granted = await requestPermission();
+      await writeMetaValue("notificationPermissionState", granted);
+      set({ notificationPermission: granted });
+      devLog("first-use permission", granted);
+    }
+
+    void get().syncNativeNotifications();
+  }
 }
 
 /** Recompute + persist today's snapshot, classify, refresh state. */
@@ -258,10 +488,12 @@ export const useStore = create<MomentumState>()((set, get) => ({
   history: [],
   notifications: [],
   notificationSettings: defaultSettings,
+  notificationMeta: {},
+  notificationPermission: "prompt",
 
   boot: () => {
     if (!bootPromise) {
-      bootPromise = doBoot(set)
+      bootPromise = doBoot(set, get)
         .then(() => {
           if (get().ready) return get().syncNotifications();
         })
@@ -300,9 +532,18 @@ export const useStore = create<MomentumState>()((set, get) => ({
       createdAt: new Date().toISOString(),
     };
     set((s) => ({ tasks: [task, ...s.tasks] }));
+    const meta = {
+      ...get().notificationMeta,
+      lastMeaningfulActivityAt: new Date().toISOString(),
+      lastInteractionAt: new Date().toISOString(),
+    };
+    void writeMetaValue("lastMeaningfulActivityAt", meta.lastMeaningfulActivityAt);
+    set({ notificationMeta: meta });
     db.tasks
       .add(task)
-      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+      .then(() =>
+        Promise.all([syncToday(get, set), get().syncNotifications(), get().syncNativeNotifications()]),
+      )
       .catch(logError("create task"));
     return id;
   },
@@ -331,7 +572,9 @@ export const useStore = create<MomentumState>()((set, get) => ({
     if (updated) {
       db.tasks
         .put(updated)
-        .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+        .then(() =>
+          Promise.all([syncToday(get, set), get().syncNotifications(), get().syncNativeNotifications()]),
+        )
         .catch(logError("update task"));
     }
   },
@@ -346,7 +589,9 @@ export const useStore = create<MomentumState>()((set, get) => ({
       await db.logs.where("taskId").equals(id).delete();
       await db.notifications.where("taskId").equals(id).delete();
     })
-      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+      .then(() =>
+        Promise.all([syncToday(get, set), get().syncNotifications(), get().syncNativeNotifications()]),
+      )
       .catch(logError("delete task"));
   },
 
@@ -370,9 +615,22 @@ export const useStore = create<MomentumState>()((set, get) => ({
         };
 
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
+    if (done) {
+      const nowIso = new Date().toISOString();
+      const meta = {
+        ...get().notificationMeta,
+        lastMeaningfulActivityAt: nowIso,
+        lastTaskCompletionAt: nowIso,
+      };
+      void writeMetaValue("lastMeaningfulActivityAt", nowIso);
+      void writeMetaValue("lastTaskCompletionAt", nowIso);
+      set({ notificationMeta: meta });
+    }
     db.tasks
       .put(next)
-      .then(() => get().syncNotifications())
+      .then(() =>
+        Promise.all([get().syncNotifications(), get().syncNativeNotifications()]),
+      )
       .catch(logError("toggle task"));
   },
 
@@ -402,11 +660,22 @@ export const useStore = create<MomentumState>()((set, get) => ({
       logs: [...s.logs, log],
     }));
 
+    // Meaningful progress — the user is engaged, so the next reminder waits.
+    const nowIso = new Date().toISOString();
+    const meta = {
+      ...get().notificationMeta,
+      lastMeaningfulActivityAt: nowIso,
+      ...(done ? { lastTaskCompletionAt: nowIso } : {}),
+    };
+    void writeMetaValue("lastMeaningfulActivityAt", nowIso);
+    if (done) void writeMetaValue("lastTaskCompletionAt", nowIso);
+    set({ notificationMeta: meta });
+
     db.transaction("rw", [db.tasks, db.logs], async () => {
       await db.tasks.put(nextTask);
       await db.logs.add(log);
     })
-      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+      .then(() => Promise.all([syncToday(get, set), get().syncNotifications(), get().syncNativeNotifications()]))
       .catch(logError("log time"));
   },
 
@@ -416,9 +685,18 @@ export const useStore = create<MomentumState>()((set, get) => ({
 
     const next = toAccomplished(task);
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
+    const nowIso = new Date().toISOString();
+    const meta = {
+      ...get().notificationMeta,
+      lastMeaningfulActivityAt: nowIso,
+      lastTaskCompletionAt: nowIso,
+    };
+    void writeMetaValue("lastMeaningfulActivityAt", nowIso);
+    void writeMetaValue("lastTaskCompletionAt", nowIso);
+    set({ notificationMeta: meta });
     db.tasks
       .put(next)
-      .then(() => Promise.all([syncToday(get, set), get().syncNotifications()]))
+      .then(() => Promise.all([syncToday(get, set), get().syncNotifications(), get().syncNativeNotifications()]))
       .catch(logError("accomplish task"));
   },
 
@@ -489,6 +767,49 @@ export const useStore = create<MomentumState>()((set, get) => ({
     }
   },
 
+  /**
+   * Keep the native schedule in sync with reality. Runs after every change
+   * and whenever the app resumes: cancel outdated, schedule the meaningful
+   * handful, persist what is pending. No-op on the web.
+   */
+  syncNativeNotifications: async () => {
+    const s = get();
+    if (!nativeAvailable()) return;
+
+    const settings = s.notificationSettings;
+    const now = new Date();
+    const permission = s.notificationPermission;
+
+    if (!settings.enabled || permission !== "granted") {
+      const tracked = (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
+      if (tracked.length > 0) {
+        await resyncNative(tracked, []);
+        await writeMetaValue("scheduledNotificationIds", []);
+        devLog("native schedule cleared (disabled or no permission)");
+      }
+      return;
+    }
+
+    const schedule = buildNativeSchedule(get, now);
+    const nextRecords = schedule.slice(0, 12); // keep the meaningful few
+
+    const tracked =
+      (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
+
+    // Skip the native round-trip when nothing changed.
+    const same =
+      tracked.length === nextRecords.length &&
+      tracked.every((t, i) => t.key === nextRecords[i].key && t.at.getTime() === nextRecords[i].at.getTime());
+    if (same) {
+      devLog("native schedule unchanged", nextRecords.length);
+      return;
+    }
+
+    await resyncNative(tracked, nextRecords);
+    await writeMetaValue("scheduledNotificationIds", nextRecords);
+    devLog("native schedule synced", { count: nextRecords.length, keys: nextRecords.map((r) => r.key) });
+  },
+
   dismissNotification: (id) => {
     const s = get();
     const n = s.notifications.find((x) => x.id === id);
@@ -527,8 +848,36 @@ export const useStore = create<MomentumState>()((set, get) => ({
     set({ notificationSettings: next });
     db.meta
       .put({ key: "notificationSettings", value: next })
-      .then(() => get().syncNotifications())
+      .then(() =>
+        Promise.all([get().syncNotifications(), get().syncNativeNotifications()]),
+      )
       .catch(logError("save notification settings"));
+  },
+
+  markInteraction: () => {
+    const now = new Date();
+    const last = get().notificationMeta.lastInteractionAt;
+    if (last && now.getTime() - new Date(last).getTime() < 60_000) return; // throttle
+    const iso = now.toISOString();
+    void writeMetaValue("lastInteractionAt", iso);
+    set((s) => ({ notificationMeta: { ...s.notificationMeta, lastInteractionAt: iso } }));
+  },
+
+  requestNotificationPermission: async () => {
+    const permission = await requestPermission();
+    await writeMetaValue("notificationPermissionState", permission);
+    set({ notificationPermission: permission });
+    if (permission === "granted") {
+      await get().syncNativeNotifications();
+    }
+    devLog("permission requested", permission);
+    return permission;
+  },
+
+  refreshNotificationPermission: async () => {
+    const permission = await checkPermission();
+    await writeMetaValue("notificationPermissionState", permission);
+    set({ notificationPermission: permission });
   },
 }));
 

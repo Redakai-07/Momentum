@@ -33,7 +33,7 @@ export function OccasionalView() {
       <PageHeader
         eyebrow="Bucket list"
         title="Occasional"
-        sub="Experiences and curiosities for slower days — none of it counts against today's load."
+        sub="Your someday list — none of it counts against today's load."
         aside={
           <Button variant="primary" size="sm" onClick={() => setFormOpen(true)}>
             <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">New</span> Task
@@ -46,8 +46,8 @@ export function OccasionalView() {
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState
           icon={<Compass className="h-4 w-4" strokeWidth={1.5} />}
-          title="Nothing on the bucket list yet"
-          body="Movies, books, places, skills — things you want to do when the moment is right."
+          title="Your occasional list is empty"
+          body="Movies, books, places, skills — for when the moment is right."
           action={
             <Button variant="soft" size="sm" onClick={() => setFormOpen(true)}>
               <Plus className="h-3.5 w-3.5" /> Add something fun

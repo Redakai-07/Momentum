@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, Flame, Plus, SunMedium } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Flame, ListChecks, Plus, Sparkles } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
 import { useNow } from "@/lib/hooks";
 import { useStore } from "@/lib/store";
@@ -9,7 +10,7 @@ import { breakdownForDay } from "@/lib/schedule";
 import { workloadForTasks, currentStreak, liveDayRec, type DayRec } from "@/lib/performance";
 import { addDays, dateKey } from "@/lib/date";
 import { PROFILE } from "@/lib/types";
-import { formatMinutes, greetingForHour } from "@/lib/format";
+import { greetingForHour } from "@/lib/format";
 import { scheduleSummary } from "@/lib/labels";
 import { ListShell, EmptyState, ListSkeleton } from "@/components/ui/list";
 import { Button } from "@/components/ui/button";
@@ -19,27 +20,25 @@ import { TaskFormModal } from "@/components/tasks/task-form";
 import { SpecialTaskBanner } from "@/components/dashboard/special-task-banner";
 import { WorkloadBar } from "@/components/dashboard/workload-bar";
 import { RemindersStrip } from "@/components/dashboard/reminders-strip";
+import { cn } from "@/lib/utils";
 
 function StreakPill({ streak }: { streak: number | null }) {
   return (
-    <div
-      className="flex items-center gap-2.5 rounded-lg border border-signal/25 bg-signal-soft/60 px-3 py-2"
-      title="Consistency streak — days at/above your performance threshold"
+    <Link
+      href="/profile"
+      className="flex items-center gap-1.5 rounded-full border border-signal/25 bg-signal-soft/50 px-2.5 py-1 transition-colors hover:border-signal/40"
+      aria-label={`${streak ?? 0} day streak — view performance`}
     >
-      <Flame className="h-4 w-4 text-signal" fill="currentColor" strokeWidth={0} />
-      <span className="tnum text-[15px] font-semibold leading-none text-signal-foreground">
+      <Flame className="h-3.5 w-3.5 text-signal" fill="currentColor" strokeWidth={0} />
+      <span className="tnum text-[13px] font-semibold leading-none text-signal-foreground">
         {streak ?? "—"}
       </span>
-      <span className="hidden font-mono text-[9.5px] font-medium uppercase tracking-[0.14em] text-signal-foreground/80 sm:block">
-        day streak
-      </span>
-    </div>
+    </Link>
   );
 }
 
 function GroupSection({
   title,
-  icon,
   sub,
   tasks,
   onOpen,
@@ -47,7 +46,6 @@ function GroupSection({
   onAdd,
 }: {
   title: string;
-  icon?: string;
   sub?: string;
   tasks: import("@/lib/types").Task[];
   onOpen: (t: import("@/lib/types").Task) => void;
@@ -57,9 +55,8 @@ function GroupSection({
   const open = tasks.filter((t) => t.status === "active").length;
   return (
     <section>
-      <div className="mb-2 flex items-baseline justify-between gap-3 px-0.5">
+      <div className="mb-1 flex items-baseline justify-between gap-3 px-0.5">
         <div className="flex min-w-0 items-baseline gap-2">
-          {icon && <span className="text-[13px] leading-none">{icon}</span>}
           <h2 className="text-[13px] font-semibold tracking-tight text-foreground">
             {title}
           </h2>
@@ -76,9 +73,9 @@ function GroupSection({
           type="button"
           onClick={onAdd}
           aria-label={`Add a task to ${title}`}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
         >
-          <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+          <Plus className="h-4 w-4" strokeWidth={2} />
         </button>
       </div>
       <ListShell>
@@ -124,19 +121,38 @@ export function TodayView() {
     }));
     const streak = currentStreak([...recs, live], key);
 
-    const nextActions = [...breakdown.specials, ...breakdown.groups.flatMap((g) => g.tasks)]
-      .filter((t) => t.status === "active" && t.nextAction)
-      .slice(0, 4);
-
     const yesterdayKey = dateKey(addDays(now, -1));
     const recoveryYesterday = history.some(
       (h) => h.date === yesterdayKey && h.kind === "recovery",
     );
 
-    return { key, breakdown, workload, streak, nextActions, recoveryYesterday };
+    const openTotal = breakdown.groups.reduce(
+      (s, g) => s + g.tasks.filter((t) => t.status === "active").length,
+      0,
+    );
+    const doneTotal = breakdown.groups.reduce(
+      (s, g) => s + g.tasks.filter((t) => t.status === "completed").length,
+      0,
+    );
+
+    return {
+      key,
+      breakdown,
+      workload,
+      streak,
+      recoveryYesterday,
+      openTotal,
+      doneTotal,
+      isEmpty: openTotal === 0 && doneTotal === 0 && breakdown.specials.length === 0,
+    };
   }, [now, tasks, sections, logs, history]);
 
   const openTask = (id: string) => setSelectedId(id);
+
+  const openForm = (section: "daily" | "remainder" | "occasional" | `custom:${string}`) => {
+    setFormSection(section);
+    setFormOpen(true);
+  };
 
   return (
     <PageFrame>
@@ -150,34 +166,23 @@ export function TodayView() {
         </div>
       ) : (
         <>
-          <div className="mb-7 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+          {/* Greeting + date + streak */}
+          <div className="mb-6 flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="mb-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <h1 className="text-[24px] font-semibold leading-tight tracking-tight text-foreground sm:text-[28px]">
+                {greetingForHour(now.getHours())}
+                <span className="text-muted-foreground">,</span> {PROFILE.name}
+              </h1>
+              <p className="mt-1 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 {now.toLocaleDateString("en-US", {
                   weekday: "long",
                   month: "long",
                   day: "numeric",
                 })}
               </p>
-              <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground sm:text-[30px]">
-                {greetingForHour(now.getHours())}
-                <span className="text-muted-foreground">,</span> {PROFILE.name}
-              </h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="pt-1">
               <StreakPill streak={derived.streak} />
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  setFormSection("daily");
-                  setFormOpen(true);
-                }}
-                className="h-8"
-              >
-                <Plus className="h-3.5 w-3.5" strokeWidth={2.2} />
-                <span className="hidden sm:inline">New</span>
-              </Button>
             </div>
           </div>
 
@@ -188,111 +193,88 @@ export function TodayView() {
             </p>
           )}
 
-          {derived.breakdown.specials.length > 0 && (
-            <div className="mb-6">
-              <SpecialTaskBanner
-                tasks={derived.breakdown.specials}
-                onOpen={(t) => openTask(t.id)}
+          {/* First run / nothing planned — calm and intentional */}
+          {derived.isEmpty ? (
+            <div className="pt-10">
+              <EmptyState
+                title="Nothing planned yet"
+                body="Add something you want to make progress on."
+                className="py-8"
+                action={
+                  <Button variant="primary" size="md" onClick={() => openForm("daily")}>
+                    <Plus className="h-4 w-4" strokeWidth={2.2} /> Add task
+                  </Button>
+                }
               />
             </div>
-          )}
+          ) : (
+            <div className="space-y-6">
+              {derived.breakdown.specials.length > 0 && (
+                <SpecialTaskBanner
+                  tasks={derived.breakdown.specials}
+                  onOpen={(t) => openTask(t.id)}
+                />
+              )}
 
-          <div className="space-y-6">
-            <RemindersStrip />
-            {derived.breakdown.groups.length > 0 ? (
-              derived.breakdown.groups.map((g) => (
+              <RemindersStrip />
+
+              <div className="px-0.5">
+                <WorkloadBar
+                  planned={derived.workload.planned}
+                  remaining={derived.workload.remaining}
+                />
+              </div>
+
+              {derived.breakdown.groups.map((g) => (
                 <GroupSection
                   key={g.id}
                   title={g.title}
-                  icon={g.icon}
                   sub={g.tasks[0]?.schedule ? scheduleSummary(g.tasks[0].schedule) : undefined}
                   tasks={g.tasks}
                   onOpen={(t) => openTask(t.id)}
                   onToggle={(t) => toggleTask(t.id)}
-                  onAdd={() => {
-                    setFormSection(
-                      g.id === "builtin-daily" ? "daily" : (`custom:${g.id}` as const),
-                    );
-                    setFormOpen(true);
-                  }}
+                  onAdd={() =>
+                    openForm(g.id === "builtin-daily" ? "daily" : (`custom:${g.id}` as const))
+                  }
                 />
-              ))
-            ) : (
-              <EmptyState
-                icon={<SunMedium className="h-4.5 w-4.5" strokeWidth={1.5} />}
-                title="Nothing scheduled for today"
-                body="Add a daily routine, or a task with a due date to make it special today."
-                action={
-                  <Button
-                    variant="soft"
-                    size="sm"
-                    onClick={() => {
-                      setFormSection("daily");
-                      setFormOpen(true);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" /> New task
-                  </Button>
-                }
-              />
-            )}
+              ))}
 
-            <WorkloadBar
-              planned={derived.workload.planned}
-              remaining={derived.workload.remaining}
-              doneCount={derived.breakdown.specialsDone.length + derived.breakdown.groups.reduce(
-                (s, g) => s + g.tasks.filter((t) => t.status === "completed").length,
-                0,
-              )}
-              totalCount={derived.workload.count}
-            />
-
-            {derived.nextActions.length > 0 && (
-              <section>
-                <p className="mb-2 px-0.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  Next actions
-                </p>
-                <ListShell>
-                  {derived.nextActions.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => openTask(t.id)}
-                      className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45"
-                    >
-                      <ArrowRight
-                        className="h-3.5 w-3.5 shrink-0 text-signal"
-                        strokeWidth={2.2}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px]">
-                          <span className="font-medium text-foreground">{t.title}</span>
-                          <span className="text-muted-foreground"> · {t.nextAction}</span>
-                        </span>
-                      </span>
-                      {t.estimatedMinutes > 0 && (
-                        <span className="shrink-0 font-mono text-[11.5px] tnum text-muted-foreground">
-                          {formatMinutes(t.remainingMinutes)}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </ListShell>
-              </section>
-            )}
-
-            <div className="flex justify-center pb-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setFormSection("daily");
-                  setFormOpen(true);
-                }}
-              >
-                <Plus className="h-3.5 w-3.5" /> Add task
-              </Button>
+              <div className="flex justify-center pb-1">
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={() => openForm("daily")}
+                  className="rounded-full px-5"
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2} /> Add task
+                </Button>
+              </div>
             </div>
+          )}
+
+          {/* Other lists — quiet links below the day's work */}
+          <div className="mt-7 space-y-2 border-t border-border/70 pt-4">
+            <Link
+              href="/remainder"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-1 py-2 text-[14px] transition-colors hover:bg-muted/40",
+              )}
+            >
+              <ListChecks className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <span className="flex-1 font-medium text-foreground">Remainder</span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
+            </Link>
+            <Link
+              href="/occasional"
+              className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px] transition-colors hover:bg-muted/40"
+            >
+              <Sparkles className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <span className="flex-1 font-medium text-foreground">Occasional</span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
+            </Link>
+            <p className="px-1 pt-1 text-xs leading-relaxed text-muted-foreground/80">
+              Remainder holds tasks that need finishing. Occasional is your someday list.
+            </p>
           </div>
         </>
       )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Plus } from "lucide-react";
+import { CheckCircle2, ChevronDown, Plus } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
@@ -16,6 +16,7 @@ import type {
   Task,
   Weekday,
 } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type SectionKey = "daily" | "remainder" | "occasional" | `custom:${string}`;
 
@@ -41,8 +42,8 @@ export function TaskFormModal({ open, onClose, task, defaultSection = "daily" }:
     <Modal
       open={open}
       onClose={onClose}
-      eyebrow={isEdit ? "Edit task" : "Create task"}
-      title={isEdit ? task?.title : "New task"}
+      eyebrow={isEdit ? "Edit task" : "New task"}
+      title={isEdit ? task?.title : undefined}
       className="sm:max-w-[560px]"
     >
       <TaskFormBody
@@ -76,12 +77,22 @@ function TaskFormBody({
 
   const [sectionKey, setSectionKey] = useState<SectionKey>(startingSection);
   const [title, setTitle] = useState(task?.title ?? "");
-  const [hours, setHours] = useState(task ? Math.floor(task.estimatedMinutes / 60) : 1);
-  const [mins, setMins] = useState(task ? task.estimatedMinutes % 60 : 0);
+  const [hours, setHours] = useState(task ? Math.floor(task.estimatedMinutes / 60) : 0);
+  const [mins, setMins] = useState(task ? task.estimatedMinutes % 60 : 30);
   const [dueDate, setDueDate] = useState(task?.dueDate ?? "");
   const [priority, setPriority] = useState<Priority>(task?.priority ?? "medium");
   const [description, setDescription] = useState(task?.description ?? "");
   const [nextAction, setNextAction] = useState(task?.nextAction ?? "");
+  const [detailsOpen, setDetailsOpen] = useState(
+    Boolean(
+      task &&
+        (task.description ||
+          task.nextAction ||
+          task.dueDate ||
+          task.priority !== undefined ||
+          task.schedule),
+    ),
+  );
 
   const [scheduleType, setScheduleType] = useState<ScheduleType>(
     task?.schedule?.type ?? startingCustom?.schedule.type ?? "daily",
@@ -175,10 +186,11 @@ function TaskFormBody({
         <Input
           id="tf-title"
           autoFocus
-          placeholder="e.g. DSA Practice"
+          placeholder="What do you want to work on?"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           maxLength={120}
+          className="h-10 text-[15px]"
         />
       </Field>
 
@@ -228,94 +240,122 @@ function TaskFormBody({
         </Field>
       </div>
 
-      {isScheduleList && (
-        <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[13px] font-medium text-foreground/90">Schedule</span>
-            <Segmented<ScheduleType>
-              size="sm"
-              options={[
-                { value: "daily", label: "Every day" },
-                { value: "weekly", label: "Weekly" },
-                { value: "custom", label: "Custom days" },
-              ]}
-              value={scheduleType}
-              onChange={(v) => {
-                setScheduleType(v);
-                if (v === "weekly" && days.length !== 1) {
-                  const today = (new Date().getDay() + 6) % 7;
-                  setDays([today as Weekday]);
-                }
-                if (v === "custom" && days.length === 0) {
-                  setDays([1, 3, 5]);
-                }
-              }}
-            />
-          </div>
-          {showScheduleDays && (
-            <div>
-              <p className="mb-1.5 text-xs text-muted-foreground">
-                {scheduleType === "weekly" ? "Repeat every week on" : "Repeat on"}
-              </p>
-              <DayChips value={days} onChange={setDays} single={scheduleType === "weekly"} />
-            </div>
-          )}
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[11px] text-muted-foreground">Start</span>
-            <Input
-              type="time"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              aria-label="Start time"
-              className="h-8 w-[110px] px-2 font-mono text-xs tnum"
-            />
-            <span className="font-mono text-[11px] text-muted-foreground">End</span>
-            <Input
-              type="time"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              aria-label="End time"
-              className="h-8 w-[110px] px-2 font-mono text-xs tnum"
-            />
-          </div>
-        </div>
+      {/* Progressive disclosure — advanced options stay out of the way. */}
+      {!isEdit && (
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((v) => !v)}
+          aria-expanded={detailsOpen}
+          className="flex w-full items-center justify-between rounded-lg border border-border/70 bg-muted/25 px-3.5 py-2.5 text-[13px] font-medium text-foreground/85 transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+        >
+          Add details
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform duration-200",
+              detailsOpen && "rotate-180",
+            )}
+            strokeWidth={2}
+          />
+        </button>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Due date" hint="optional — surfaces as a special task" htmlFor="tf-due">
-          <Input id="tf-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        </Field>
-        <Field label="Priority">
-          <Segmented<Priority>
-            className="w-full"
-            options={[
-              { value: "low", label: "Low" },
-              { value: "medium", label: "Med" },
-              { value: "high", label: "High" },
-            ]}
-            value={priority}
-            onChange={setPriority}
-          />
-        </Field>
-      </div>
+      {detailsOpen && (
+        <div className="space-y-4">
+          {isScheduleList && (
+            <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[13px] font-medium text-foreground/90">Schedule</span>
+                <Segmented<ScheduleType>
+                  size="sm"
+                  options={[
+                    { value: "daily", label: "Every day" },
+                    { value: "weekly", label: "Weekly" },
+                    { value: "custom", label: "Custom days" },
+                  ]}
+                  value={scheduleType}
+                  onChange={(v) => {
+                    setScheduleType(v);
+                    if (v === "weekly" && days.length !== 1) {
+                      const today = (new Date().getDay() + 6) % 7;
+                      setDays([today as Weekday]);
+                    }
+                    if (v === "custom" && days.length === 0) {
+                      setDays([1, 3, 5]);
+                    }
+                  }}
+                />
+              </div>
+              {showScheduleDays && (
+                <div>
+                  <p className="mb-1.5 text-xs text-muted-foreground">
+                    {scheduleType === "weekly" ? "Repeat every week on" : "Repeat on"}
+                  </p>
+                  <DayChips value={days} onChange={setDays} single={scheduleType === "weekly"} />
+                </div>
+              )}
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[11px] text-muted-foreground">Start</span>
+                <Input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  aria-label="Start time"
+                  className="h-8 w-[110px] px-2 font-mono text-xs tnum"
+                />
+                <span className="font-mono text-[11px] text-muted-foreground">End</span>
+                <Input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  aria-label="End time"
+                  className="h-8 w-[110px] px-2 font-mono text-xs tnum"
+                />
+              </div>
+            </div>
+          )}
 
-      <Field label="Next action" hint="optional — the concrete next step">
-        <Input
-          placeholder="e.g. Complete 3Sum using two pointers"
-          value={nextAction}
-          onChange={(e) => setNextAction(e.target.value)}
-          maxLength={160}
-        />
-      </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Due date" hint="optional" htmlFor="tf-due">
+              <Input
+                id="tf-due"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </Field>
+            <Field label="Priority">
+              <Segmented<Priority>
+                className="w-full"
+                options={[
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Med" },
+                  { value: "high", label: "High" },
+                ]}
+                value={priority}
+                onChange={setPriority}
+              />
+            </Field>
+          </div>
 
-      <Field label="Description" hint="optional">
-        <Textarea
-          placeholder="What does this involve? Topics, resources, steps…"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={3}
-        />
-      </Field>
+          <Field label="Next action" hint="optional — the concrete next step">
+            <Input
+              placeholder="e.g. Complete 3Sum using two pointers"
+              value={nextAction}
+              onChange={(e) => setNextAction(e.target.value)}
+              maxLength={160}
+            />
+          </Field>
+
+          <Field label="Description" hint="optional">
+            <Textarea
+              placeholder="What does this involve? Topics, resources, steps…"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+            />
+          </Field>
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-2 border-t border-border/70 pt-4">
         <Button variant="ghost" type="button" onClick={onClose}>

@@ -47,10 +47,9 @@ export function RemainderView() {
     <PageFrame>
       <PageHeader
         eyebrow="Backlog"
-        title="Remainder"
-        sub={
+        title="Remainder"          sub={
           open.length > 0
-            ? `${open.length} open task${open.length === 1 ? "" : "s"} — complete these to keep the list honest.`
+            ? `${open.length} open task${open.length === 1 ? "" : "s"}`
             : undefined
         }
         aside={
@@ -65,7 +64,7 @@ export function RemainderView() {
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState
           icon={<LayoutList className="h-4 w-4" strokeWidth={1.5} />}
-          title="The remainder list is empty"
+          title="Nothing waiting here"
           body="Tasks that need finishing but aren't daily habits live here — assignments, deadlines, one-off projects."
           action={
             <Button variant="soft" size="sm" onClick={() => setFormOpen(true)}>
@@ -86,7 +85,7 @@ export function RemainderView() {
             ))}
             {open.length === 0 && (
               <div className="px-4 py-6 text-center text-[13px] text-muted-foreground">
-                Nothing open — all cleared. 🎉
+                All cleared.
               </div>
             )}
           </ListShell>

@@ -88,7 +88,11 @@ export function Select({
         className={cn(
           fieldBase,
           "h-9 cursor-pointer appearance-none pl-3 pr-9 text-sm",
-          "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2216%22%20height=%2216%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22%23808080%22%20stroke-width=%222.5%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22m6%209%206%206%206-6%22/%3E%3C/svg%3E')] bg-[right_0.65rem_center] bg-no-repeat",
+          // Dark, self-rendered chevron + dark dropdown surface so the
+          // Android/web option list never flashes white.
+          "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2216%22%20height=%2216%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22%23666666%22%20stroke-width=%222.5%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22m6%209%206%206%206-6%22/%3E%3C/svg%3E')] bg-[right_0.65rem_center] bg-no-repeat",
+          "[&>option]:bg-background [&>option]:text-foreground [&>option]:text-[13px]",
+          "dark:[&>option]:bg-[#1f1d1a] dark:[&>option]:text-[#e8e5df]",
           className,
         )}
         {...props}

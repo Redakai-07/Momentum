@@ -1,38 +1,41 @@
 import { formatMinutes } from "@/lib/format";
 
+/**
+ * "Today's progress" — completed time vs planned time with a subtle bar.
+ * 42m / 2h 15m — the whole story, nothing else.
+ */
 export function WorkloadBar({
   planned,
   remaining,
-  doneCount,
-  totalCount,
 }: {
   planned: number;
   remaining: number;
-  doneCount: number;
-  totalCount: number;
 }) {
-  const pct = planned > 0 ? Math.min(100, Math.max(0, ((planned - remaining) / planned) * 100)) : 0;
+  const done = Math.max(0, planned - remaining);
+  const pct = planned > 0 ? Math.min(100, Math.max(0, (done / planned) * 100)) : 0;
   return (
-    <div className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="flex items-baseline gap-2.5">
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-            Remaining
-          </span>
-          <span className="tnum text-lg font-semibold tracking-tight text-foreground">
-            {formatMinutes(remaining)}
-          </span>
-          <span className="font-mono text-[11.5px] tnum text-muted-foreground">
-            of {formatMinutes(planned)} planned
-          </span>
-        </div>
-        <span className="font-mono text-[11px] tnum text-muted-foreground">
-          {doneCount}/{totalCount} tasks done
+    <div>
+      <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        Today&apos;s progress
+      </p>
+      <p className="mt-1 flex items-baseline gap-1.5">
+        <span className="tnum text-xl font-semibold tracking-tight text-foreground">
+          {formatMinutes(done)}
         </span>
-      </div>
-      <div className="mt-2.5 h-[4px] overflow-hidden rounded-full bg-muted">
+        <span className="tnum text-[13px] text-muted-foreground">
+          / {formatMinutes(planned)}
+        </span>
+      </p>
+      <div
+        role="progressbar"
+        aria-label="Today's progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-muted"
+      >
         <div
-          className="h-full rounded-full bg-primary/80 transition-[width] duration-700 ease-out"
+          className="h-full rounded-full bg-primary/75 transition-[width] duration-700 ease-out"
           style={{ width: `${pct}%` }}
         />
       </div>

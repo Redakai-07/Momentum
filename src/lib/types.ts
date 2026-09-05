@@ -82,9 +82,12 @@ export interface CustomSection {
   createdAt: string;
 }
 
+/**
+ * Personal settings that are not user-configurable.
+ * `streakThreshold` is the percentage required on a day for the streak to
+ * survive — see lib/config.ts for the recovery-day rules.
+ */
 export const PROFILE = {
   name: "Venkatesh",
-  /** Percentage required on a day for the streak to survive. */
   streakThreshold: 0.7,
-  joined: "2026-01-12",
 } as const;

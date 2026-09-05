@@ -1,8 +1,8 @@
 import {
   CalendarDays,
-  Compass,
-  LayoutList,
-  SunMedium,
+  Home,
+  ListChecks,
+  Sparkles,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -14,24 +14,17 @@ export interface NavItem {
   match: (pathname: string) => boolean;
 }
 
+/**
+ * Primary destinations — the mobile bottom navigation. Deliberately small:
+ * Daily / Remainder / Occasional live on Home, and custom sections stay
+ * under Profile → Settings → My sections.
+ */
 export const NAV_ITEMS: NavItem[] = [
   {
     href: "/",
-    label: "Today",
-    icon: SunMedium,
+    label: "Home",
+    icon: Home,
     match: (p) => p === "/",
-  },
-  {
-    href: "/remainder",
-    label: "Remainder",
-    icon: LayoutList,
-    match: (p) => p.startsWith("/remainder"),
-  },
-  {
-    href: "/occasional",
-    label: "Occasional",
-    icon: Compass,
-    match: (p) => p.startsWith("/occasional"),
   },
   {
     href: "/calendar",
@@ -44,5 +37,21 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Profile",
     icon: UserRound,
     match: (p) => p.startsWith("/profile"),
+  },
+];
+
+/** Secondary lists — reachable from Home, not from the bottom bar. */
+export const LIST_LINKS: NavItem[] = [
+  {
+    href: "/remainder",
+    label: "Remainder",
+    icon: ListChecks,
+    match: (p) => p.startsWith("/remainder"),
+  },
+  {
+    href: "/occasional",
+    label: "Occasional",
+    icon: Sparkles,
+    match: (p) => p.startsWith("/occasional"),
   },
 ];
