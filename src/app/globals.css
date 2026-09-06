@@ -82,6 +82,22 @@
   --sidebar: 198 25% 6.5%;
 }
 
+/* Optional accent presets. The default intentionally matches Momentum's
+  current teal palette; each preset overrides only interactive tokens. */
+[data-accent="blue"] { --primary: 214 70% 43%; --ring: 214 70% 45%; --accent: 214 38% 93%; --accent-foreground: 214 55% 25%; }
+[data-accent="purple"] { --primary: 270 52% 45%; --ring: 270 55% 48%; --accent: 270 35% 94%; --accent-foreground: 270 45% 26%; }
+[data-accent="green"] { --primary: 145 52% 32%; --ring: 145 55% 35%; --accent: 145 35% 92%; --accent-foreground: 145 45% 22%; }
+[data-accent="orange"] { --primary: 25 76% 43%; --ring: 25 78% 45%; --accent: 25 62% 93%; --accent-foreground: 25 55% 24%; }
+[data-accent="red"] { --primary: 4 65% 43%; --ring: 4 68% 45%; --accent: 4 48% 94%; --accent-foreground: 4 52% 25%; }
+[data-accent="pink"] { --primary: 333 58% 45%; --ring: 333 60% 48%; --accent: 333 42% 94%; --accent-foreground: 333 48% 26%; }
+
+.dark[data-accent="blue"] { --primary: 214 78% 66%; --ring: 214 78% 68%; --accent: 214 42% 20%; --accent-foreground: 214 72% 88%; }
+.dark[data-accent="purple"] { --primary: 270 72% 72%; --ring: 270 75% 74%; --accent: 270 38% 21%; --accent-foreground: 270 72% 90%; }
+.dark[data-accent="green"] { --primary: 145 62% 55%; --ring: 145 65% 58%; --accent: 145 35% 19%; --accent-foreground: 145 65% 86%; }
+.dark[data-accent="orange"] { --primary: 25 82% 64%; --ring: 25 84% 66%; --accent: 25 42% 20%; --accent-foreground: 25 82% 88%; }
+.dark[data-accent="red"] { --primary: 4 78% 65%; --ring: 4 80% 68%; --accent: 4 38% 20%; --accent-foreground: 4 82% 88%; }
+.dark[data-accent="pink"] { --primary: 333 72% 68%; --ring: 333 75% 71%; --accent: 333 38% 21%; --accent-foreground: 333 78% 90%; }
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));

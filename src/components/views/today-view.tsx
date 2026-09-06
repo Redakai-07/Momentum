@@ -40,6 +40,7 @@ function GroupSection({
   title,
   sub,
   tasks,
+  totalTasks,
   onOpen,
   onToggle,
   onAdd,
@@ -47,6 +48,7 @@ function GroupSection({
   title: string;
   sub?: string;
   tasks: import("@/lib/types").Task[];
+  totalTasks: number;
   onOpen: (t: import("@/lib/types").Task) => void;
   onToggle: (t: import("@/lib/types").Task) => void;
   onAdd: () => void;
@@ -60,7 +62,7 @@ function GroupSection({
             {title}
           </h2>
           <span className="font-mono text-[10.5px] tnum text-muted-foreground">
-            {open > 0 ? `${open} left` : open === 0 && tasks.length > 0 ? "done" : "empty"}
+            {open > 0 ? `${open} left` : tasks.length > 0 ? "done" : totalTasks > 0 ? "not scheduled" : "empty"}
           </span>
           {sub && (
             <span className="hidden truncate font-mono text-[10.5px] text-muted-foreground/70 sm:block">
@@ -79,7 +81,7 @@ function GroupSection({
       </div>
       {tasks.length === 0 ? (
         <div className="px-4 py-4 text-center text-[13px] text-muted-foreground">
-          No tasks yet — tap + to add one.
+          {totalTasks > 0 ? "No tasks scheduled for today." : "No tasks yet — tap + to add one."}
         </div>
       ) : (
         <ListShell>
@@ -241,6 +243,11 @@ export function TodayView() {
                   title={g.title}
                   sub={g.tasks[0]?.schedule ? scheduleSummary(g.tasks[0].schedule) : undefined}
                   tasks={g.tasks}
+                  totalTasks={tasks.filter((task) =>
+                    g.id === "builtin-daily"
+                      ? task.section === "daily"
+                      : task.section === "custom" && task.customSectionId === g.id,
+                  ).length}
                   onOpen={(t) => openTask(t.id)}
                   onToggle={(t) => toggleTask(t.id)}
                   onAdd={() =>

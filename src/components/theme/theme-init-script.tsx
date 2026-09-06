@@ -12,7 +12,7 @@ export function ThemeInitScript() {
       id="theme-init"
       strategy="beforeInteractive"
       dangerouslySetInnerHTML={{
-        __html: `(function(){try{var t=localStorage.getItem("momentum:theme");var dark=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark);}catch(e){}})();`,
+        __html: `(function(){try{var t=localStorage.getItem("momentum:theme");var dark=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",dark);var a=localStorage.getItem("momentum:accent-color");if(a)document.documentElement.dataset.accent=a;}catch(e){}})();`,
       }}
     />
     /* eslint-enable @next/next/no-before-interactive-script-outside-document */

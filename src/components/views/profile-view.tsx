@@ -36,7 +36,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { ListShell, EmptyState, ListSkeleton } from "@/components/ui/list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/form";
-import { useTheme, type Theme } from "@/components/theme/theme-provider";
+import { useTheme, type AccentColor, type Theme } from "@/components/theme/theme-provider";
 import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +88,7 @@ function ToggleRow({
         <span
           className={cn(
             "absolute top-0.5 h-4 w-4 rounded-full bg-card shadow-soft transition-transform",
-            checked ? "translate-x-[18px]" : "translate-x-0.5",
+            checked ? "translate-x-4.5" : "translate-x-0.5",
           )}
         />
       </button>
@@ -248,7 +248,7 @@ export function ProfileView() {
   const notificationSettings = useStore((s) => s.notificationSettings);
   const setNotificationSettings = useStore((s) => s.setNotificationSettings);
   const profileName = useStore((s) => s.profileName);
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, accentColor, setAccentColor } = useTheme();
 
   useEffect(() => {
     if (!joined) void getFirstRunDate().then(setJoined);
@@ -369,7 +369,7 @@ export function ProfileView() {
         </div>
       ) : tab === "accomplishments" ? (
         /* ------------------------- Accomplishments -------------------------- */
-        <div className="max-w-[680px]">
+        <div className="max-w-170">
           <div className="mb-3 flex items-center gap-2 px-0.5">
             <Award className="h-4 w-4 text-success" strokeWidth={1.75} />
             <h2 className="text-sm font-semibold tracking-tight text-foreground">
@@ -397,7 +397,7 @@ export function ProfileView() {
                     onClick={() => setSelectedId(t.id)}
                     className="flex w-full items-center gap-3.5 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45"
                   >
-                    <CheckCircle2 className="h-[18px] w-[18px] shrink-0 text-success" strokeWidth={1.75} />
+                    <CheckCircle2 className="h-4.5 w-4.5 shrink-0 text-success" strokeWidth={1.75} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[14px] font-medium text-foreground">
                         {t.title}
@@ -421,7 +421,7 @@ export function ProfileView() {
         </div>
       ) : (
         /* ------------------------------ Settings ----------------------------- */
-        <div className="max-w-[680px] space-y-6">
+        <div className="max-w-170 space-y-6">
           <section>
             <div className="mb-2 flex items-center gap-2">
               <UserRound className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
@@ -451,6 +451,38 @@ export function ProfileView() {
                 value={theme}
                 onChange={setTheme}
               />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/60 px-4 py-3.5">
+              <div>
+                <p className="text-[13.5px] font-medium text-foreground">Accent color</p>
+                <p className="text-xs text-muted-foreground">Choose a subtle highlight for actions and selections.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2" aria-label="Accent color">
+                {([
+                  ["default", "Default", "hsl(174 62% 32%)"],
+                  ["blue", "Blue", "hsl(214 70% 43%)"],
+                  ["purple", "Purple", "hsl(270 52% 45%)"],
+                  ["green", "Green", "hsl(145 52% 32%)"],
+                  ["orange", "Orange", "hsl(25 76% 43%)"],
+                  ["red", "Red", "hsl(4 65% 43%)"],
+                  ["pink", "Pink", "hsl(333 58% 45%)"],
+                  ["teal", "Teal", "hsl(174 62% 32%)"],
+                ] as [AccentColor, string, string][]).map(([value, label, color]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-label={label}
+                    aria-pressed={accentColor === value}
+                    title={label}
+                    onClick={() => setAccentColor(value)}
+                    className={cn(
+                      "h-7 w-7 rounded-full border-2 border-transparent shadow-sm transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      accentColor === value && "border-foreground ring-2 ring-ring/40 ring-offset-1",
+                    )}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
             </div>
           </section>
 
