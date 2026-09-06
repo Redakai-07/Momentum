@@ -1,14 +1,15 @@
 import { NOTIFICATION_DEFAULTS } from "../config";
 import { addDaysKey, dateKey } from "../date";
-import { taskOccursOn } from "../schedule";
+import { scheduleForTask, taskOccursOn } from "../schedule";
 import { isTaskDone } from "../task-state";
-import type { Task, TimeLog } from "../types";
+import type { CustomSection, Task, TimeLog } from "../types";
 import { notifKey, type NotificationSettings, type TaskNotification } from "./types";
 
 export interface NotifContext {
   now: Date;
   tasks: Task[];
   logs: TimeLog[];
+  sections?: CustomSection[];
   existing: TaskNotification[];
   settings: NotificationSettings;
 }
@@ -43,17 +44,17 @@ function parseHHMM(t: string): { h: number; m: number } | null {
  * (stable tie-break by title). Only recurring daily/custom work and tasks
  * due today qualify — one-offs without a due date are invisible to the nudge.
  */
-export function pickNextTask(today: string, tasks: Task[]): Task | null {
+export function pickNextTask(today: string, tasks: Task[], sections: CustomSection[] = []): Task | null {
   const candidates = tasks.filter(
     (t) =>
       !isTaskDone(t) &&
-      taskOccursOn(t, today) &&
+      taskOccursOn(t, today, sections) &&
       (t.section === "daily" || t.section === "custom" || t.dueDate === today),
   );
   if (candidates.length === 0) return null;
   return [...candidates].sort((a, b) => {
-    const ta = a.schedule?.startTime ?? "99";
-    const tb = b.schedule?.startTime ?? "99";
+    const ta = scheduleForTask(a, sections)?.startTime ?? "99";
+    const tb = scheduleForTask(b, sections)?.startTime ?? "99";
     if (ta !== tb) return ta < tb ? -1 : 1;
     return a.title.localeCompare(b.title);
   })[0];
@@ -67,7 +68,7 @@ export function pickNextTask(today: string, tasks: Task[]): Task | null {
  * already done. Delivered rows are kept as a dismissible record.
  */
 export function planNotifications(ctx: NotifContext): EngineResult {
-  const { now, tasks, logs, existing, settings } = ctx;
+  const { now, tasks, logs, existing, settings, sections = [] } = ctx;
   const today = dateKey(now);
   const nowMs = now.getTime();
 
@@ -134,7 +135,7 @@ export function planNotifications(ctx: NotifContext): EngineResult {
           ? task!.dueDate === today
           : n.type === "overdue"
             ? Boolean(task!.dueDate && task!.dueDate < today)
-            : taskOccursOn(task!, today));
+            : taskOccursOn(task!, today, sections));
 
       if (!stillValid || !enabled) {
         // Task is moot, or reminders are switched off — cancel what is
@@ -209,9 +210,10 @@ export function planNotifications(ctx: NotifContext): EngineResult {
   if (enabled && s.taskReminders) {
     const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
     for (const t of tasks) {
-      if (isTaskDone(t) || !t.schedule || !taskOccursOn(t, today)) continue;
+      const schedule = scheduleForTask(t, sections);
+      if (isTaskDone(t) || !schedule || !taskOccursOn(t, today, sections)) continue;
       if (loggedToday.has(t.id)) continue; // already engaged — no nagging
-      const start = t.schedule.startTime ? parseHHMM(t.schedule.startTime) : null;
+      const start = schedule.startTime ? parseHHMM(schedule.startTime) : null;
       if (start) {
         const fire = atLocal(now, start.h, start.m).getTime();
         if (fire >= nowMs) {
@@ -228,7 +230,7 @@ export function planNotifications(ctx: NotifContext): EngineResult {
           }
         }
       }
-      const end = t.schedule.endTime ? parseHHMM(t.schedule.endTime) : null;
+      const end = schedule.endTime ? parseHHMM(schedule.endTime) : null;
       if (end) {
         const fire = atLocal(now, end.h, end.m).getTime();
         if (fire >= nowMs) {
@@ -254,7 +256,7 @@ export function planNotifications(ctx: NotifContext): EngineResult {
   if (enabled && s.taskReminders && lastCompletedMs > 0) {
     const cooldownEnd = lastCompletedMs + s.cooldownMinutes * MIN;
     if (nowMs >= cooldownEnd) {
-      const target = pickNextTask(today, tasks);
+      const target = pickNextTask(today, tasks, sections);
       if (target) {
         const key = notifKey({ taskId: target.id, type: "next_task", date: today });
         const already = existing.find((n) => notifKey(n) === key && n.status !== "cancelled");

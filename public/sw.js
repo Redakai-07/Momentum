@@ -21,7 +21,7 @@
  */
 const VERSION = "momentum-shell-v3";
 const RSC_QUERY = "?momentum_rsc=1";
-const ROUTES = ["/", "/remainder", "/occasional", "/calendar", "/profile"];
+const ROUTES = ["/", "/remainder", "/occasional", "/calendar", "/profile", "/section"];
 const STATIC_PREFIXES = ["/_next/static/", "/icons/", "/fonts/", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

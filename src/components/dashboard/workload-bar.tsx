@@ -32,7 +32,7 @@ export function WorkloadBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(pct)}
-        className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-muted"
+        className="mt-2.5 h-0.75 overflow-hidden rounded-full bg-muted"
       >
         <div
           className="h-full rounded-full bg-primary/75 transition-[width] duration-700 ease-out"

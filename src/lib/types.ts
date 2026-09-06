@@ -1,12 +1,20 @@
 /** Weekday index, matching Date#getDay(): 0 = Sunday … 6 = Saturday. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-export type ScheduleType = "daily" | "weekly" | "custom";
+export type ScheduleType = "daily" | "weekly" | "custom" | "monthly-date" | "monthly-weekday";
+
+export type MonthOccurrence = "first" | "second" | "third" | "fourth" | "last";
 
 export interface Schedule {
   type: ScheduleType;
   /** Weekdays the task recurs on (weekly/custom). Monday-first when rendered. */
   days?: Weekday[];
+  /** Day of month for monthly-date schedules. Invalid dates are skipped. */
+  dayOfMonth?: number | "last";
+  /** Weekday position for monthly-weekday schedules. */
+  occurrence?: MonthOccurrence;
+  /** Weekday for monthly-weekday schedules. */
+  weekday?: Weekday;
   /** Local "HH:MM" 24h. */
   startTime?: string;
   endTime?: string;
@@ -39,6 +47,7 @@ export interface Task {
   /** YYYY-MM-DD (local). Tasks with a due date surface as Special Tasks. */
   dueDate?: string;
   priority?: Priority;
+  /** Legacy per-task schedule. New tasks inherit their section schedule. */
   schedule?: Schedule;
   status: TaskStatus;
   createdAt: string;

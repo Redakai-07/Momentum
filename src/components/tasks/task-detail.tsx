@@ -18,6 +18,7 @@ import { formatMinutes } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import { useModalStack } from "@/lib/modal-stack";
 import { sectionLabel, scheduleSummary, timeRange } from "@/lib/labels";
+import { scheduleForTask } from "@/lib/schedule";
 import { parseKey } from "@/lib/date";
 import { canAccomplish, isTaskAccomplished, isTaskDone } from "@/lib/task-state";
 import { cn } from "@/lib/utils";
@@ -44,9 +45,9 @@ function TimeSummary({ task }: { task: Task }) {
           remaining of {formatMinutes(task.estimatedMinutes)} estimated
         </p>
       </div>
-      <div className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-muted">
+      <div className="mt-2.5 h-0.75 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-primary/75 transition-[width] duration-500"
+          className="h-0.75 rounded-full bg-primary/75 transition-[width] duration-500"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -139,8 +140,9 @@ function MetaLine({ task }: { task: Task }) {
   const sections = useStore((s) => s.sections);
   const label = sectionLabel(task, sections);
   const parts: string[] = [];
-  if (task.schedule) parts.push(scheduleSummary(task.schedule));
-  const range = timeRange(task.schedule);
+  const schedule = scheduleForTask(task, sections);
+  if (schedule) parts.push(scheduleSummary(schedule));
+  const range = timeRange(schedule ?? undefined);
   if (range) parts.push(range);
 
   const today = todayLocalKey();

@@ -11,75 +11,75 @@
 :root {
   color-scheme: light;
 
-  --background: 45 20% 96.5%;
-  --foreground: 28 14% 12%;
+  --background: 192 22% 96.5%;
+  --foreground: 198 28% 13%;
 
-  --card: 45 30% 98.6%;
-  --card-foreground: 28 14% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 198 28% 13%;
 
-  --popover: 45 30% 98.6%;
-  --popover-foreground: 28 14% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 198 28% 13%;
 
-  --muted: 40 12% 91%;
-  --muted-foreground: 30 8% 38%;
+  --muted: 190 18% 90%;
+  --muted-foreground: 198 12% 40%;
 
-  --accent: 243 32% 94.5%;
-  --accent-foreground: 243 38% 26%;
+  --accent: 174 38% 91%;
+  --accent-foreground: 174 46% 23%;
 
-  --primary: 243 52% 44%;
+  --primary: 174 62% 32%;
   --primary-foreground: 0 0% 100%;
 
   --destructive: 3 66% 42%;
   --destructive-foreground: 0 0% 100%;
 
-  --signal: 32 90% 38%;
-  --signal-soft: 38 70% 92%;
-  --signal-foreground: 33 50% 22%;
+  --signal: 14 76% 48%;
+  --signal-soft: 18 82% 93%;
+  --signal-foreground: 14 56% 25%;
 
-  --success: 150 55% 32%;
+  --success: 154 55% 32%;
 
-  --border: 38 12% 85.5%;
-  --input: 38 12% 84%;
-  --ring: 243 55% 50%;
+  --border: 190 15% 83%;
+  --input: 190 15% 80%;
+  --ring: 174 62% 34%;
 
-  --sidebar: 45 16% 93.5%;
+  --sidebar: 190 25% 93%;
 }
 
 .dark {
   color-scheme: dark;
 
-  --background: 28 10% 7.5%;
-  --foreground: 40 22% 91%;
+  --background: 198 24% 8%;
+  --foreground: 190 20% 92%;
 
-  --card: 28 9% 10.5%;
-  --card-foreground: 40 22% 91%;
+  --card: 198 22% 11%;
+  --card-foreground: 190 20% 92%;
 
-  --popover: 28 9% 11%;
-  --popover-foreground: 40 22% 91%;
+  --popover: 198 22% 12%;
+  --popover-foreground: 190 20% 92%;
 
-  --muted: 28 7% 15.5%;
-  --muted-foreground: 38 8% 60%;
+  --muted: 198 18% 17%;
+  --muted-foreground: 190 10% 63%;
 
-  --accent: 240 40% 20%;
-  --accent-foreground: 240 60% 88%;
+  --accent: 174 35% 19%;
+  --accent-foreground: 174 45% 84%;
 
-  --primary: 237 78% 72%;
-  --primary-foreground: 246 55% 9%;
+  --primary: 174 58% 55%;
+  --primary-foreground: 198 35% 8%;
 
   --destructive: 2 70% 58%;
   --destructive-foreground: 0 0% 100%;
 
-  --signal: 40 92% 58%;
-  --signal-soft: 38 60% 13%;
-  --signal-foreground: 42 90% 80%;
+  --signal: 14 82% 63%;
+  --signal-soft: 14 45% 17%;
+  --signal-foreground: 18 90% 82%;
 
-  --success: 152 60% 48%;
+  --success: 154 60% 52%;
 
-  --border: 28 7% 18%;
-  --input: 28 7% 20%;
-  --ring: 237 70% 70%;
+  --border: 198 16% 22%;
+  --input: 198 16% 25%;
+  --ring: 174 58% 58%;
 
-  --sidebar: 28 9% 6.5%;
+  --sidebar: 198 25% 6.5%;
 }
 
 @theme inline {

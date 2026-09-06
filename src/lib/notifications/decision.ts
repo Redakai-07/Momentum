@@ -1,5 +1,6 @@
 import { dateKey, parseKey } from "../date";
-import type { Task, TimeLog } from "../types";
+import type { CustomSection, Task, TimeLog } from "../types";
+import { taskOccursOn } from "../schedule";
 import type { NotificationSettings } from "./types";
 
 /**
@@ -34,6 +35,7 @@ export interface DecisionContext {
   now: Date;
   tasks: Task[];
   logs: TimeLog[];
+  sections?: CustomSection[];
   settings: NotificationSettings;
   /** ISO timestamps of last events, or null when never happened. */
   lastNotificationAt?: string | null;
@@ -90,16 +92,9 @@ export function minutesSince(iso: string | null | undefined, now: Date): number 
   return Math.max(0, Math.floor((now.getTime() - ms) / MIN));
 }
 
-export function taskOccursToday(task: Task, key: string): boolean {
+export function taskOccursToday(task: Task, key: string, sections: CustomSection[] = []): boolean {
   if (task.status !== "active") return false;
-  if (task.schedule) {
-    // Mirror lib/schedule.ts: daily fires every day, weekly/custom on days.
-    if (task.schedule.type === "daily") return true;
-    const days = task.schedule.days;
-    if (!days || days.length === 0) return false;
-    const d = parseKey(key);
-    return days.includes(d.getDay() as (typeof days)[number]);
-  }
+  if (taskOccursOn(task, key, sections)) return true;
   // Due today OR overdue — overdue work stays relevant until done.
   return Boolean(task.dueDate && task.dueDate <= key);
 }
@@ -127,10 +122,11 @@ export function pickReminderTask(
   tasks: Task[],
   key: string,
   lastReminderByTask?: Record<string, string> | null,
+  sections: CustomSection[] = [],
 ): Task | null {
   const today = dateKey(new Date(key + "T12:00:00"));
   const active = tasks
-    .filter((t) => taskOccursToday(t, key))
+    .filter((t) => taskOccursToday(t, key, sections))
     .map((t) => ({ t, rank: rankTask(t, today) }))
     .sort((a, b) => a.rank - b.rank || a.t.title.localeCompare(b.t.title));
 
@@ -177,7 +173,7 @@ export function shouldNotify(ctx: DecisionContext): Decision {
     return { shouldNotify: false, reason: "notifications_disabled", priority: "low" };
   }
 
-  const activeToday = tasks.filter((t) => taskOccursToday(t, key));
+  const activeToday = tasks.filter((t) => taskOccursToday(t, key, ctx.sections));
   if (activeToday.length === 0) {
     return { shouldNotify: false, reason: "no_tasks", priority: "low" };
   }
@@ -262,7 +258,7 @@ export function shouldNotify(ctx: DecisionContext): Decision {
     return { shouldNotify: false, reason: "no_gap_yet", priority: "low" };
   }
 
-  const task = pickReminderTask(tasks, key, ctx.lastReminderByTask);
+  const task = pickReminderTask(tasks, key, ctx.lastReminderByTask, ctx.sections);
   if (!task) return { shouldNotify: false, reason: "no_next_step", priority: "low" };
 
   const priority: ReminderPriority =

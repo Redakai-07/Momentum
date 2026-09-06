@@ -16,7 +16,7 @@ export interface NavItem {
 
 /**
  * Primary destinations — the mobile bottom navigation. Deliberately small:
- * Daily / Remainder / Occasional live on Home, and custom sections stay
+ * Daily / Reminder / Occasional live on Home, and custom sections stay
  * under Profile → Settings → My sections.
  */
 export const NAV_ITEMS: NavItem[] = [
@@ -44,7 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
 export const LIST_LINKS: NavItem[] = [
   {
     href: "/remainder",
-    label: "Remainder",
+    label: "Reminder",
     icon: ListChecks,
     match: (p) => p.startsWith("/remainder"),
   },

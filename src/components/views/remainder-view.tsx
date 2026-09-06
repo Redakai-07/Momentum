@@ -47,7 +47,7 @@ export function RemainderView() {
     <PageFrame>
       <PageHeader
         eyebrow="Backlog"
-        title="Remainder"          sub={
+        title="Reminder"          sub={
           open.length > 0
             ? `${open.length} open task${open.length === 1 ? "" : "s"}`
             : undefined

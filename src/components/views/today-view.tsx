@@ -113,9 +113,9 @@ export function TodayView() {
     if (!now) return null;
     const key = dateKey(now);
     const breakdown = breakdownForDay(tasks, sections, key);
-    const workload = workloadForTasks(tasks, key);
+    const workload = workloadForTasks(tasks, key, sections);
 
-    const live = liveDayRec(tasks, logs, key);
+    const live = liveDayRec(tasks, logs, key, sections);
     // Keep the stored kind (recovery/inactive) — a recovery day must not
     // break the streak, and rest days must stay neutral.
     const recs: DayRec[] = history.map((h) => ({
@@ -271,7 +271,7 @@ export function TodayView() {
               )}
             >
               <ListChecks className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
-              <span className="flex-1 font-medium text-foreground">Remainder</span>
+              <span className="flex-1 font-medium text-foreground">Reminder</span>
               <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
             </Link>
             <Link
@@ -283,16 +283,20 @@ export function TodayView() {
               <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
             </Link>
             {sections.map((section) => (
-              <div key={section.id} className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px]">
+              <Link
+                key={section.id}
+                href={`/section?sectionId=${encodeURIComponent(section.id)}`}
+                className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px] transition-colors hover:bg-muted/40"
+              >
                 <Layers className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                <span className="min-w-0 flex-1 break-words font-medium text-foreground">
+                <span className="min-w-0 flex-1 wrap-break-word font-medium text-foreground">
                   {section.icon ? `${section.icon} ` : ""}{section.name}
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" strokeWidth={2} />
-              </div>
+              </Link>
             ))}
             <p className="px-1 pt-1 text-xs leading-relaxed text-muted-foreground/80">
-              Remainder holds tasks that need finishing. Occasional is your someday list.
+              Reminder holds tasks that need finishing. Occasional is your someday list.
             </p>
           </div>
         </>

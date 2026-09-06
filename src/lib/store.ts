@@ -198,8 +198,8 @@ function replaceToday(history: DailyPerformance[], rec: DailyPerformance): Daily
   return next;
 }
 
-async function persistDayRec(tasks: Task[], logs: TimeLog[], key: string): Promise<void> {
-  const rec = liveDayRec(tasks, logs, key);
+async function persistDayRec(tasks: Task[], logs: TimeLog[], key: string, sections: CustomSection[] = []): Promise<void> {
+  const rec = liveDayRec(tasks, logs, key, sections);
   const existing = await db.performance.get(key);
   const writeable = key === todayKey() || !existing;
   if (!writeable) return;
@@ -265,6 +265,7 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
     now,
     tasks: s.tasks,
     logs: s.logs,
+    sections: s.sections,
     existing: s.notifications,
     settings,
   });
@@ -399,7 +400,7 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
 
   // Make sure today has a snapshot row.
   if (history.findIndex((h) => h.date === today) === -1) {
-    await persistDayRec(tasks, logs, today);
+    await persistDayRec(tasks, logs, today, sections);
     history = await db.performance.toArray();
   }
 
@@ -477,8 +478,8 @@ async function syncToday(get: GetFn, set: SetFn): Promise<void> {
   const s = get();
   try {
     const today = todayKey();
-    const rec = liveDayRec(s.tasks, s.logs, today);
-    await persistDayRec(s.tasks, s.logs, today);
+    const rec = liveDayRec(s.tasks, s.logs, today, s.sections);
+    await persistDayRec(s.tasks, s.logs, today, s.sections);
     const merged = replaceToday(s.history, rec);
     set({ history: applyRecoveryKinds(merged, today) });
   } catch (err) {
@@ -748,6 +749,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
       now,
       tasks: s.tasks,
       logs: s.logs,
+      sections: s.sections,
       existing: s.notifications,
       settings: s.notificationSettings,
     });

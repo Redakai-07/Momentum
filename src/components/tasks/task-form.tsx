@@ -6,18 +6,14 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Segmented } from "@/components/ui/segmented";
-import { DayChips } from "./section-days";
 import { useStore } from "@/lib/store";
 import { useModalStack } from "@/lib/modal-stack";
 import type {
-  CustomSection,
   Priority,
-  Schedule,
-  ScheduleType,
   Task,
-  Weekday,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { scheduleSummary } from "@/lib/labels";
 
 type SectionKey = "daily" | "remainder" | "occasional" | `custom:${string}`;
 
@@ -47,7 +43,7 @@ export function TaskFormModal({ open, onClose, task, defaultSection = "daily" }:
       onClose={onClose}
       eyebrow={isEdit ? "Edit task" : "New task"}
       title={isEdit ? task?.title : undefined}
-      className="sm:max-w-[560px]"
+      className="sm:max-w-140"
     >
       <TaskFormBody
         key={open ? (task?.id ?? "create") : "closed"}
@@ -74,10 +70,6 @@ function TaskFormBody({
   const isEdit = Boolean(task);
 
   const startingSection = initialSectionKey(task, defaultSection);
-  const startingCustom = startingSection.startsWith("custom:")
-    ? sections.find((s) => s.id === startingSection.slice("custom:".length))
-    : undefined;
-
   const [sectionKey, setSectionKey] = useState<SectionKey>(startingSection);
   const [title, setTitle] = useState(task?.title ?? "");
   const [hours, setHours] = useState(task ? Math.floor(task.estimatedMinutes / 60) : 0);
@@ -86,51 +78,18 @@ function TaskFormBody({
   const [priority, setPriority] = useState<Priority>(task?.priority ?? "medium");
   const [description, setDescription] = useState(task?.description ?? "");
   const [nextAction, setNextAction] = useState(task?.nextAction ?? "");
-  const [detailsOpen, setDetailsOpen] = useState(
-    Boolean(
-      task &&
-        (task.description ||
-          task.nextAction ||
-          task.dueDate ||
-          task.priority !== undefined ||
-          task.schedule),
-    ),
-  );
-
-  const [scheduleType, setScheduleType] = useState<ScheduleType>(
-    task?.schedule?.type ?? startingCustom?.schedule.type ?? "daily",
-  );
-  const [days, setDays] = useState<Weekday[]>(
-    task?.schedule?.days ?? startingCustom?.schedule.days ?? [],
-  );
-  const [startTime, setStartTime] = useState(
-    task?.schedule?.startTime ?? startingCustom?.schedule.startTime ?? "",
-  );
-  const [endTime, setEndTime] = useState(
-    task?.schedule?.endTime ?? startingCustom?.schedule.endTime ?? "",
-  );
-
-  const isScheduleList = sectionKey === "daily" || sectionKey.startsWith("custom:");
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(task && (task.description || task.nextAction || task.dueDate || task.priority !== undefined)));
 
   const pickSection = (key: SectionKey) => {
     setSectionKey(key);
-    // When creating into a custom section, adopt the section's own rhythm.
-    if (!isEdit && key.startsWith("custom:")) {
-      const sec: CustomSection | undefined = sections.find(
-        (s) => s.id === key.slice("custom:".length),
-      );
-      if (sec) {
-        setScheduleType(sec.schedule.type);
-        setDays(sec.schedule.days ?? []);
-        setStartTime(sec.schedule.startTime ?? "");
-        setEndTime(sec.schedule.endTime ?? "");
-      }
-    }
   };
-
-  const showScheduleDays = isScheduleList && scheduleType !== "daily";
   const estimatedMinutes = (Number(hours) || 0) * 60 + (Number(mins) || 0);
   const canSubmit = title.trim().length > 0;
+  const selectedSchedule = sectionKey.startsWith("custom:")
+    ? sections.find((section) => section.id === sectionKey.slice("custom:".length))?.schedule
+    : sectionKey === "daily"
+      ? { type: "daily" as const }
+      : undefined;
 
   const submit = () => {
     if (!canSubmit) return;
@@ -140,15 +99,6 @@ function TaskFormBody({
       section = "custom";
       customSectionId = sectionKey.slice("custom:".length);
     }
-    const schedule: Schedule | undefined = isScheduleList
-      ? {
-          type: scheduleType,
-          days: scheduleType === "daily" ? undefined : days,
-          startTime: startTime || undefined,
-          endTime: endTime || undefined,
-        }
-      : undefined;
-
     if (isEdit && task) {
       updateTask(task.id, {
         title: title.trim(),
@@ -159,7 +109,6 @@ function TaskFormBody({
         nextAction: nextAction.trim() || undefined,
         dueDate: dueDate || undefined,
         priority,
-        schedule,
       });
     } else {
       addTask({
@@ -171,7 +120,6 @@ function TaskFormBody({
         nextAction: nextAction.trim() || undefined,
         dueDate: dueDate || undefined,
         priority,
-        schedule,
       });
     }
     onClose();
@@ -205,7 +153,7 @@ function TaskFormBody({
             onChange={(e) => pickSection(e.target.value as SectionKey)}
           >
             <option value="daily">Daily</option>
-            <option value="remainder">Remainder</option>
+            <option value="remainder">Reminder</option>
             <option value="occasional">Occasional</option>
             {sections.map((s) => (
               <option key={s.id} value={`custom:${s.id}`}>
@@ -214,6 +162,11 @@ function TaskFormBody({
               </option>
             ))}
           </Select>
+          {selectedSchedule && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {scheduleSummary(selectedSchedule)}
+            </p>
+          )}
         </Field>
 
         <Field label="Estimated time">
@@ -264,59 +217,6 @@ function TaskFormBody({
 
       {detailsOpen && (
         <div className="space-y-4">
-          {isScheduleList && (
-            <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-3.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[13px] font-medium text-foreground/90">Schedule</span>
-                <Segmented<ScheduleType>
-                  size="sm"
-                  options={[
-                    { value: "daily", label: "Every day" },
-                    { value: "weekly", label: "Weekly" },
-                    { value: "custom", label: "Custom days" },
-                  ]}
-                  value={scheduleType}
-                  onChange={(v) => {
-                    setScheduleType(v);
-                    if (v === "weekly" && days.length !== 1) {
-                      const today = (new Date().getDay() + 6) % 7;
-                      setDays([today as Weekday]);
-                    }
-                    if (v === "custom" && days.length === 0) {
-                      setDays([1, 3, 5]);
-                    }
-                  }}
-                />
-              </div>
-              {showScheduleDays && (
-                <div>
-                  <p className="mb-1.5 text-xs text-muted-foreground">
-                    {scheduleType === "weekly" ? "Repeat every week on" : "Repeat on"}
-                  </p>
-                  <DayChips value={days} onChange={setDays} single={scheduleType === "weekly"} />
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="font-mono text-[11px] text-muted-foreground">Start</span>
-                <Input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  aria-label="Start time"
-                  className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
-                />
-                <span className="font-mono text-[11px] text-muted-foreground">End</span>
-                <Input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  aria-label="End time"
-                  className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
-                />
-              </div>
-            </div>
-          )}
-
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Due date" hint="optional" htmlFor="tf-due">
               <Input

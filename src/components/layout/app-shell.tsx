@@ -79,11 +79,12 @@ function StreakMini() {
   const history = useStore((s) => s.history);
   const tasks = useStore((s) => s.tasks);
   const logs = useStore((s) => s.logs);
+  const sections = useStore((s) => s.sections);
 
   let streak: number | null = null;
   if (ready && now) {
     const key = dateKey(now);
-    const live = liveDayRec(tasks, logs, key);
+    const live = liveDayRec(tasks, logs, key, sections);
     const recs = history.map((h) => pickDayRec(history, null, h.date));
     streak = currentStreak([...recs, live], key);
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breakdownForDay, taskOccursOn } from "./schedule";
+import { breakdownForDay, scheduleOccursOn, taskOccursOn } from "./schedule";
 import type { CustomSection, Task } from "./types";
 
 const T = (o: Partial<Task> & { id: string; title: string }): Task => ({
@@ -59,6 +59,55 @@ describe("taskOccursOn", () => {
       schedule: { type: "daily" },
     });
     expect(taskOccursOn(t, KEY)).toBe(false);
+  });
+});
+
+describe("section schedule recurrence", () => {
+  const local = (year: number, month: number, day: number) => new Date(year, month - 1, day);
+
+  it("evaluates daily and weekly schedules", () => {
+    expect(scheduleOccursOn({ type: "daily" }, local(2026, 3, 11))).toBe(true);
+    expect(scheduleOccursOn({ type: "weekly", days: [1] }, local(2026, 3, 9))).toBe(true);
+    expect(scheduleOccursOn({ type: "weekly", days: [1] }, local(2026, 3, 10))).toBe(false);
+    expect(scheduleOccursOn({ type: "custom", days: [1, 5] }, local(2026, 3, 13))).toBe(true);
+  });
+
+  it("skips nonexistent monthly dates and supports the last day", () => {
+    const day31 = { type: "monthly-date" as const, dayOfMonth: 31 };
+    expect(scheduleOccursOn(day31, local(2026, 1, 31))).toBe(true);
+    expect(scheduleOccursOn(day31, local(2026, 2, 28))).toBe(false);
+    expect(scheduleOccursOn(day31, local(2026, 3, 31))).toBe(true);
+    const last = (date: Date) => date.getDate() === new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    expect(last(local(2026, 2, 28))).toBe(true);
+    expect(last(local(2026, 4, 30))).toBe(true);
+    const lastSchedule = { type: "monthly-date" as const, dayOfMonth: "last" as const };
+    expect(scheduleOccursOn(lastSchedule, local(2026, 1, 31))).toBe(true);
+    expect(scheduleOccursOn(lastSchedule, local(2026, 2, 28))).toBe(true);
+    expect(scheduleOccursOn(lastSchedule, local(2026, 4, 30))).toBe(true);
+  });
+
+  it("evaluates monthly weekday positions deterministically", () => {
+    const firstMonday = { type: "monthly-weekday" as const, occurrence: "first" as const, weekday: 1 as const };
+    const secondMonday = { ...firstMonday, occurrence: "second" as const };
+    const lastFriday = { type: "monthly-weekday" as const, occurrence: "last" as const, weekday: 5 as const };
+    const fourthMonday = { type: "monthly-weekday" as const, occurrence: "fourth" as const, weekday: 1 as const };
+    expect(scheduleOccursOn(firstMonday, local(2026, 6, 1))).toBe(true);
+    expect(scheduleOccursOn(firstMonday, local(2026, 6, 8))).toBe(false);
+    expect(scheduleOccursOn(secondMonday, local(2026, 6, 8))).toBe(true);
+    expect(scheduleOccursOn(lastFriday, local(2026, 5, 29))).toBe(true);
+    expect(scheduleOccursOn(fourthMonday, local(2026, 2, 23))).toBe(true);
+  });
+
+  it("uses the section schedule for new custom-section tasks", () => {
+    const section: CustomSection = {
+      id: "research",
+      name: "Research",
+      schedule: { type: "monthly-date", dayOfMonth: 15 },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    const task = T({ id: "r", title: "Paper", section: "custom", customSectionId: "research" });
+    expect(taskOccursOn(task, "2026-03-15", [section])).toBe(true);
+    expect(taskOccursOn(task, "2026-03-14", [section])).toBe(false);
   });
 });
 

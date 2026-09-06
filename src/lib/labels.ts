@@ -6,7 +6,7 @@ export function sectionLabel(task: Task, sections: CustomSection[]): {
   icon?: string;
 } {
   if (task.section === "daily") return { title: "Daily" };
-  if (task.section === "remainder") return { title: "Remainder" };
+  if (task.section === "remainder") return { title: "Reminder" };
   if (task.section === "occasional") return { title: "Occasional" };
   const s = sections.find((x) => x.id === task.customSectionId);
   return { title: s?.name ?? "Custom", icon: s?.icon };
@@ -31,7 +31,21 @@ export function scheduleSummary(schedule: Schedule): string {
       }
       return labels.join(" · ");
     }
+    case "monthly-date":
+      return schedule.dayOfMonth === "last"
+        ? "Every month on the last day"
+        : schedule.dayOfMonth ? `Every month on the ${schedule.dayOfMonth}${ordinal(schedule.dayOfMonth)}` : "Monthly date";
+    case "monthly-weekday": {
+      const occurrence = schedule.occurrence ?? "first";
+      const weekday = WEEKDAYS_MON_FIRST[((schedule.weekday ?? 1) + 6) % 7] ?? "weekday";
+      return `Every ${occurrence} ${weekday}`;
+    }
   }
+}
+
+function ordinal(value: number): string {
+  if (value % 100 >= 11 && value % 100 <= 13) return "th";
+  return value % 10 === 1 ? "st" : value % 10 === 2 ? "nd" : value % 10 === 3 ? "rd" : "th";
 }
 
 export function timeRange(schedule?: Schedule): string | null {

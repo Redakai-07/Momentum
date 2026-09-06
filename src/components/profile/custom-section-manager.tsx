@@ -1,66 +1,60 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Layers, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/form";
+import { Field, Input, Select } from "@/components/ui/form";
 import { Segmented } from "@/components/ui/segmented";
 import { EmptyState, ListShell } from "@/components/ui/list";
 import { Chip } from "@/components/ui/typography";
 import { useStore } from "@/lib/store";
 import { scheduleSummary } from "@/lib/labels";
-import type { ScheduleType, Weekday } from "@/lib/types";
+import type { CustomSection, MonthOccurrence, Schedule, ScheduleType, Weekday } from "@/lib/types";
 import { DayChips } from "../tasks/section-days";
 
 function SectionFormModal({
   open,
   onClose,
+  section,
 }: {
   open: boolean;
   onClose: () => void;
+  section?: { id: string; name: string; icon?: string; schedule: Schedule };
 }) {
   const addCustomSection = useStore((s) => s.addCustomSection);
-  const [name, setName] = useState("");
-  const [icon, setIcon] = useState("");
-  const [type, setType] = useState<ScheduleType>("daily");
-  const [days, setDays] = useState<Weekday[]>([1, 3, 5]);
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
+  const updateCustomSection = useStore((s) => s.updateCustomSection);
+  const [name, setName] = useState(section?.name ?? "");
+  const [icon, setIcon] = useState(section?.icon ?? "");
+  const [schedule, setSchedule] = useState<Schedule>(section?.schedule ?? { type: "daily" });
 
   const reset = () => {
     setName("");
     setIcon("");
-    setType("daily");
-    setDays([1, 3, 5]);
-    setStartTime("");
-    setEndTime("");
+    setSchedule({ type: "daily" });
   };
 
-  const canSave = name.trim().length > 0 && (type === "daily" || days.length > 0);
+  const canSave = name.trim().length > 0 && (schedule.type === "daily" || schedule.type === "monthly-date" || schedule.type === "monthly-weekday" || Boolean(schedule.days?.length));
+  const type = schedule.type;
+  const setType = (value: ScheduleType) => {
+    setSchedule((current) => value === "daily" ? { type: "daily" } : value === "monthly-date" ? { type: "monthly-date", dayOfMonth: current.dayOfMonth ?? 1 } : value === "monthly-weekday" ? { type: "monthly-weekday", occurrence: current.occurrence ?? "first", weekday: current.weekday ?? 1 } : { type: value, days: current.days?.length ? current.days : [1, 3, 5] });
+  };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       eyebrow="Profile · Settings"
-      title="Create section"
-      className="sm:max-w-[480px]"
+      title={section ? "Edit section" : "Create section"}
+      className="sm:max-w-120"
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (!canSave) return;
-          addCustomSection({
-            name: name.trim(),
-            icon,
-            schedule: {
-              type,
-              days: type === "daily" ? undefined : days,
-              startTime: startTime || undefined,
-              endTime: endTime || undefined,
-            },
-          });
+          const next = { ...schedule, startTime: schedule.startTime || undefined, endTime: schedule.endTime || undefined };
+          if (section) updateCustomSection(section.id, { name: name.trim(), icon, schedule: next });
+          else addCustomSection({ name: name.trim(), icon, schedule: next });
           reset();
           onClose();
         }}
@@ -89,30 +83,48 @@ function SectionFormModal({
           </Field>
         </div>
 
-        <Field label="Repeats">
+        <Field label="Schedule">
           <Segmented<ScheduleType>
             className="w-full"
             options={[
               { value: "daily", label: "Every day" },
               { value: "weekly", label: "Weekly" },
               { value: "custom", label: "Selected days" },
+              { value: "monthly-date", label: "Monthly date" },
+              { value: "monthly-weekday", label: "Monthly weekday" },
             ]}
             value={type}
-            onChange={(v) => {
-              setType(v);
-              if (v === "weekly" && days.length !== 1) {
-                setDays([((new Date().getDay() + 6) % 7) as Weekday]);
-              }
-            }}
+            onChange={setType}
           />
         </Field>
 
-        {type !== "daily" && (
+        {(type === "weekly" || type === "custom") && (
           <div>
             <p className="mb-1.5 text-xs text-muted-foreground">
-              {type === "weekly" ? "One day each week" : "Pick the days"}
+              {type === "weekly" ? "One day each week" : "Repeat on"}
             </p>
-            <DayChips value={days} onChange={setDays} single={type === "weekly"} />
+            <DayChips value={schedule.days ?? []} onChange={(days) => setSchedule({ ...schedule, days })} single={type === "weekly"} />
+          </div>
+        )}
+
+        {type === "monthly-date" && (
+          <Field label="Day of month">
+            <Select value={String(schedule.dayOfMonth ?? 1)} onChange={(e) => setSchedule({ ...schedule, dayOfMonth: e.target.value === "last" ? "last" : Number(e.target.value) })} aria-label="Day of month">
+              {Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+              <option value="last">Last day</option>
+            </Select>
+            <p className="mt-1 text-xs text-muted-foreground">If that day does not exist, this month is skipped.</p>
+          </Field>
+        )}
+
+        {type === "monthly-weekday" && (
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={schedule.occurrence ?? "first"} onChange={(e) => setSchedule({ ...schedule, occurrence: e.target.value as MonthOccurrence })} aria-label="Occurrence">
+              {(["first", "second", "third", "fourth", "last"] as MonthOccurrence[]).map((value) => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}
+            </Select>
+            <Select value={String(schedule.weekday ?? 1)} onChange={(e) => setSchedule({ ...schedule, weekday: Number(e.target.value) as Weekday })} aria-label="Weekday">
+              {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((value, index) => <option key={value} value={index}>{value}</option>)}
+            </Select>
           </div>
         )}
 
@@ -120,16 +132,16 @@ function SectionFormModal({
           <span className="font-mono text-[11px] text-muted-foreground">Start</span>
           <Input
             type="time"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
+            value={schedule.startTime ?? ""}
+            onChange={(e) => setSchedule({ ...schedule, startTime: e.target.value })}
             aria-label="Start time"
             className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
           />
           <span className="font-mono text-[11px] text-muted-foreground">End</span>
           <Input
             type="time"
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
+            value={schedule.endTime ?? ""}
+            onChange={(e) => setSchedule({ ...schedule, endTime: e.target.value })}
             aria-label="End time"
             className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
           />
@@ -140,7 +152,7 @@ function SectionFormModal({
             Cancel
           </Button>
           <Button variant="primary" type="submit" disabled={!canSave}>
-            <Plus className="h-4 w-4" /> Create section
+            <Plus className="h-4 w-4" /> {section ? "Save section" : "Create section"}
           </Button>
         </div>
       </form>
@@ -152,10 +164,8 @@ export function CustomSectionManager() {
   const sections = useStore((s) => s.sections);
   const tasks = useStore((s) => s.tasks);
   const removeCustomSection = useStore((s) => s.removeCustomSection);
-  const updateCustomSection = useStore((s) => s.updateCustomSection);
   const [createOpen, setCreateOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
+  const [editSection, setEditSection] = useState<CustomSection | null>(null);
 
   return (
     <div className="space-y-3">
@@ -197,33 +207,7 @@ export function CustomSectionManager() {
                   {s.icon ?? "•"}
                 </span>
                 <div className="min-w-0 flex-1">
-                  {editingId === s.id ? (
-                    <form
-                      className="flex min-w-0 items-center gap-1.5"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (editName.trim()) updateCustomSection(s.id, { name: editName });
-                        setEditingId(null);
-                      }}
-                    >
-                      <Input
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        maxLength={40}
-                        autoFocus
-                        aria-label={`Rename ${s.name}`}
-                        className="h-8 min-w-0 px-2 text-[13px]"
-                      />
-                      <button type="submit" aria-label="Save section name" className="shrink-0 text-success">
-                        <Check className="h-4 w-4" />
-                      </button>
-                      <button type="button" aria-label="Cancel rename" onClick={() => setEditingId(null)} className="shrink-0 text-muted-foreground">
-                        <X className="h-4 w-4" />
-                      </button>
-                    </form>
-                  ) : (
-                    <p className="truncate text-[13.5px] font-medium text-foreground">{s.name}</p>
-                  )}
+                  <p className="truncate text-[13.5px] font-medium text-foreground">{s.name}</p>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {scheduleSummary(s.schedule)}
                     {s.schedule.startTime &&
@@ -233,19 +217,16 @@ export function CustomSectionManager() {
                 <Chip tone={inUse ? "neutral" : "success"}>
                   {count} task{count === 1 ? "" : "s"}
                 </Chip>
-                {editingId !== s.id && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingId(s.id);
-                      setEditName(s.name);
-                    }}
-                    aria-label={`Rename section ${s.name}`}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-                  >
-                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditSection(s);
+                  }}
+                  aria-label={`Edit section ${s.name}`}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                >
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </button>
                 <button
                   type="button"
                   disabled={inUse}
@@ -270,7 +251,15 @@ export function CustomSectionManager() {
         </ListShell>
       )}
 
-      <SectionFormModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <SectionFormModal
+        key={editSection?.id ?? (createOpen ? "create" : "closed")}
+        open={createOpen || Boolean(editSection)}
+        onClose={() => {
+          setCreateOpen(false);
+          setEditSection(null);
+        }}
+        section={editSection ?? undefined}
+      />
     </div>
   );
 }

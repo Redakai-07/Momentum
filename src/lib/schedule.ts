@@ -1,15 +1,49 @@
 import { parseKey } from "./date";
-import type { CustomSection, Task } from "./types";
+import type { CustomSection, MonthOccurrence, Schedule, Task } from "./types";
 
 /** Does a schedule fire on the given date? */
-export function scheduleOccursOn(
-  schedule: NonNullable<Task["schedule"]>,
-  date: Date,
-): boolean {
+export function scheduleOccursOn(schedule: Schedule, date: Date): boolean {
   if (schedule.type === "daily") return true;
+  if (schedule.type === "monthly-date") {
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    if (schedule.dayOfMonth === "last") return date.getDate() === lastDay;
+    return schedule.dayOfMonth !== undefined && date.getDate() === schedule.dayOfMonth &&
+      schedule.dayOfMonth >= 1 && schedule.dayOfMonth <= lastDay;
+  }
+  if (schedule.type === "monthly-weekday") {
+    if (schedule.weekday === undefined || !schedule.occurrence) return false;
+    const matches: Date[] = [];
+    const daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const candidate = new Date(date.getFullYear(), date.getMonth(), day);
+      if (candidate.getDay() === schedule.weekday) matches.push(candidate);
+    }
+    const index = occurrenceIndex(schedule.occurrence, matches.length);
+    return index !== null && matches[index]?.getDate() === date.getDate();
+  }
   const days = schedule.days;
   if (!days || days.length === 0) return false;
   return days.includes(date.getDay() as (typeof days)[number]);
+}
+
+function occurrenceIndex(occurrence: MonthOccurrence, count: number): number | null {
+  if (occurrence === "first") return 0;
+  if (occurrence === "second") return count >= 2 ? 1 : null;
+  if (occurrence === "third") return count >= 3 ? 2 : null;
+  if (occurrence === "fourth") return count >= 4 ? 3 : null;
+  return count > 0 ? count - 1 : null;
+}
+
+/** Resolve the section-owned schedule, retaining legacy task schedules safely. */
+export function scheduleForTask(task: Task, sections: CustomSection[] = []): Schedule | null {
+  // Existing installs may have per-task recurrence. Keep it authoritative for
+  // those records; newly-created tasks omit this field and inherit below.
+  if (task.schedule) return task.schedule;
+  if (task.section === "daily") return { type: "daily" };
+  if (task.section === "custom" && task.customSectionId) {
+    return sections.find((section) => section.id === task.customSectionId)?.schedule ?? null;
+  }
+  return null;
 }
 
 /**
@@ -17,12 +51,13 @@ export function scheduleOccursOn(
  * is a one-off with that exact due date. Completed tasks stay present so
  * the calendar can show history.
  */
-export function taskOccursOn(task: Task, key: string): boolean {
+export function taskOccursOn(task: Task, key: string, sections: CustomSection[] = []): boolean {
   // Accomplished goals left the rotation — their history lives separately.
   if (task.status === "accomplished") return false;
   const date = parseKey(key);
-  if (task.schedule) {
-    return scheduleOccursOn(task.schedule, date);
+  const schedule = scheduleForTask(task, sections);
+  if (schedule) {
+    return scheduleOccursOn(schedule, date);
   }
   return task.dueDate === key;
 }
@@ -53,7 +88,7 @@ export function breakdownForDay(
   sections: CustomSection[],
   key: string,
 ): DayBreakdown {
-  const onDay = tasks.filter((t) => taskOccursOn(t, key));
+  const onDay = tasks.filter((t) => taskOccursOn(t, key, sections));
 
   const specials: Task[] = [];
   const specialsDone: Task[] = [];
@@ -117,12 +152,12 @@ export function breakdownForDay(
 }
 
 /** Tasks to list for a calendar day (recurring + due), sorted. */
-export function tasksForDay(tasks: Task[], key: string): Task[] {
+export function tasksForDay(tasks: Task[], key: string, sections: CustomSection[] = []): Task[] {
   return tasks
-    .filter((t) => taskOccursOn(t, key))
+    .filter((t) => taskOccursOn(t, key, sections))
     .sort((a, b) => {
-      const ta = a.schedule?.startTime ?? "99";
-      const tb = b.schedule?.startTime ?? "99";
+      const ta = scheduleForTask(a, sections)?.startTime ?? "99";
+      const tb = scheduleForTask(b, sections)?.startTime ?? "99";
       if (ta !== tb) return ta < tb ? -1 : 1;
       return a.title.localeCompare(b.title);
     });

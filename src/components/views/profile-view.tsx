@@ -243,6 +243,7 @@ export function ProfileView() {
 
   const tasks = useStore((s) => s.tasks);
   const logs = useStore((s) => s.logs);
+  const sections = useStore((s) => s.sections);
   const history = useStore((s) => s.history);
   const notificationSettings = useStore((s) => s.notificationSettings);
   const setNotificationSettings = useStore((s) => s.setNotificationSettings);
@@ -258,7 +259,7 @@ export function ProfileView() {
   const data = useMemo(() => {
     if (!today || !now) return null;
     const hist: DayRec[] = history.map(historyRec);
-    const live = liveDayRec(tasks, logs, today);
+    const live = liveDayRec(tasks, logs, today, sections);
     const all: DayRec[] = [...hist, live];
     const byKey = new Map(all.map((r) => [r.date, r]));
     const get = (key: string): DayRec =>
@@ -383,7 +384,7 @@ export function ProfileView() {
             <EmptyState
               icon={<Award className="h-4 w-4" strokeWidth={1.5} />}
               title="No accomplishments yet"
-              body="Finish a daily routine or a remainder task permanently from its details, and it will be kept here."
+              body="Finish a daily routine or a reminder task permanently from its details, and it will be kept here."
             />
           ) : (
             <ListShell>
@@ -402,7 +403,7 @@ export function ProfileView() {
                         {t.title}
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {t.section === "daily" ? "Daily" : "Remainder"} · accomplished{" "}
+                        {t.section === "daily" ? "Daily" : "Reminder"} · accomplished{" "}
                         {monthYearLabel(t.accomplishedAt)}
                         {logged > 0 && (
                           <>

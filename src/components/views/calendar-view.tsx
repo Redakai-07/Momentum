@@ -32,6 +32,7 @@ export function CalendarView() {
   const ready = useStore((s) => s.ready);
   const now = useNow();
   const tasks = useStore((s) => s.tasks);
+  const sections = useStore((s) => s.sections);
   const toggleTask = useStore((s) => s.toggleTask);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -51,18 +52,18 @@ export function CalendarView() {
       let openCount = 0;
       let special = false;
       for (const t of tasks) {
-        if (!taskOccursOn(t, key)) continue;
+        if (!taskOccursOn(t, key, sections)) continue;
         if (t.status === "active") openCount += 1;
         if (t.status === "active" && t.dueDate === key) special = true;
       }
       return { date, key, openCount, special };
     });
-  }, [tasks, view]);
+  }, [tasks, sections, view]);
 
   const selectedKey = selected ? dateKey(selected) : today ? dateKey(today) : null;
   const dayTasks: Task[] = useMemo(
-    () => (selectedKey ? tasksForDay(tasks, selectedKey) : []),
-    [tasks, selectedKey],
+    () => (selectedKey ? tasksForDay(tasks, selectedKey, sections) : []),
+    [tasks, selectedKey, sections],
   );
 
   const monthLabel = `${MONTHS_FULL[view.getMonth()]} ${view.getFullYear()}`;

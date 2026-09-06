@@ -1,4 +1,4 @@
-import { PROFILE, type DailyPerformance, type DayKind, type Task, type TimeLog } from "./types";
+import { PROFILE, type CustomSection, type DailyPerformance, type DayKind, type Task, type TimeLog } from "./types";
 import { taskOccursOn } from "./schedule";
 import { dateKey, normalizeDateKey, parseKey, startOfWeek } from "./date";
 
@@ -27,9 +27,9 @@ export function isNeutralRec(rec: DayRec): boolean {
 }
 
 /** Day plan/workload for tasks that occur on `key`. */
-export function workloadForTasks(tasks: Task[], key: string) {
+export function workloadForTasks(tasks: Task[], key: string, sections: CustomSection[] = []) {
   const occurring = tasks.filter(
-    (t) => taskOccursOn(t, key) && t.status !== "accomplished",
+    (t) => taskOccursOn(t, key, sections) && t.status !== "accomplished",
   );
   let planned = 0;
   let remaining = 0;
@@ -50,12 +50,13 @@ export function liveDayRec(
   tasks: Task[],
   logs: TimeLog[],
   key: string,
+  sections: CustomSection[] = [],
 ): DayRec {
   let planned = 0;
   let completed = 0;
   for (const t of tasks) {
     if (t.status === "accomplished") continue;
-    if (!taskOccursOn(t, key) && !hasLogOn(logs, t.id, key)) continue;
+    if (!taskOccursOn(t, key, sections) && !hasLogOn(logs, t.id, key)) continue;
     planned += t.estimatedMinutes;
   }
   for (const l of logs) {

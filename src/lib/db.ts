@@ -191,6 +191,24 @@ export class MomentumDB extends Dexie {
           }
         }
       });
+    this.version(5)
+      .stores({
+        tasks: "id, section, status, dueDate",
+        logs: "id, taskId, date",
+        sections: "id",
+        performance: "date",
+        meta: "key",
+        notifications: "id, taskId, status",
+      })
+      .upgrade(async (tx) => {
+        // v5 moves ownership of recurrence to sections. Existing task-level
+        // schedules remain intact as a compatibility fallback because older
+        // installs may have different schedules on tasks in one section.
+        const sections = tx.table<CustomSection, string>("sections");
+        await sections.toCollection().modify((section) => {
+          if (!section.schedule) section.schedule = { type: "daily" };
+        });
+      });
   }
 }
 
