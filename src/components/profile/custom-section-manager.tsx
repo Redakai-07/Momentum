@@ -26,7 +26,13 @@ function SectionFormModal({
   const updateCustomSection = useStore((s) => s.updateCustomSection);
   const [name, setName] = useState(section?.name ?? "");
   const [icon, setIcon] = useState(section?.icon ?? "");
-  const [schedule, setSchedule] = useState<Schedule>(section?.schedule ?? { type: "daily" });
+  const [schedule, setSchedule] = useState<Schedule>(() => {
+    if (!section) return { type: "daily" };
+    if (section.schedule.type === "weekly") {
+      return { ...section.schedule, days: [section.schedule.days?.[0] ?? 1] };
+    }
+    return section.schedule;
+  });
 
   const reset = () => {
     setName("");
@@ -37,7 +43,13 @@ function SectionFormModal({
   const canSave = name.trim().length > 0 && (schedule.type === "daily" || schedule.type === "monthly-date" || schedule.type === "monthly-weekday" || Boolean(schedule.days?.length));
   const type = schedule.type;
   const setType = (value: ScheduleType) => {
-    setSchedule((current) => value === "daily" ? { type: "daily" } : value === "monthly-date" ? { type: "monthly-date", dayOfMonth: current.dayOfMonth ?? 1 } : value === "monthly-weekday" ? { type: "monthly-weekday", occurrence: current.occurrence ?? "first", weekday: current.weekday ?? 1 } : { type: value, days: current.days?.length ? current.days : [1, 3, 5] });
+    setSchedule((current) => value === "daily"
+      ? { type: "daily" }
+      : value === "monthly-date"
+        ? { type: "monthly-date", dayOfMonth: current.dayOfMonth ?? 1 }
+        : value === "monthly-weekday"
+          ? { type: "monthly-weekday", occurrence: current.occurrence ?? "first", weekday: current.weekday ?? 1 }
+          : { type: value, days: value === "weekly" ? [current.days?.[0] ?? 1] : current.days?.length ? current.days : [1, 3, 5] });
   };
 
   return (

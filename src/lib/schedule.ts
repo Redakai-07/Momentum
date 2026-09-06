@@ -128,8 +128,9 @@ export function breakdownForDay(
 
   if (builtins[0].tasks.length > 0) groups.push(builtins[0]);
   for (const s of sections) {
+    if (!scheduleOccursOn(s.schedule, parseKey(key))) continue;
     // Always surface every custom section on Home — even empty ones — so users
-    // can see their sections and add tasks to them.
+    // can see scheduled sections and add tasks to them.
     let g = customGroups.get(s.id);
     if (!g) {
       g = { id: s.id, title: s.name, icon: s.icon, tasks: [] };

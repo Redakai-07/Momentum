@@ -156,19 +156,22 @@ describe("breakdownForDay — special-task prioritization", () => {
     expect(d.groups[1].tasks.map((t) => t.id)).toEqual(["r1"]);
   });
 
-  it("surfaces all custom sections on Home, even empty ones", () => {
+  it("surfaces only custom sections scheduled for the current day", () => {
     const tasks = [T({ id: "d1", title: "DSA", schedule: { type: "daily" } })];
     const allSections: CustomSection[] = [
       { id: "sec-research", name: "Research", icon: "🧪", schedule: { type: "daily" }, createdAt: "2026-01-01T00:00:00.000Z" },
       { id: "sec-fitness", name: "Fitness", icon: "💪", schedule: { type: "weekly", days: [1, 3] }, createdAt: "2026-01-01T00:00:00.000Z" },
     ];
     const d = breakdownForDay(tasks, allSections, KEY);
-    // Daily group + both custom sections (Research has no tasks, Fitness has no tasks)
+    // Wednesday: Research is daily, Fitness is Monday/Wednesday.
     expect(d.groups.map((g) => g.id)).toEqual(["builtin-daily", "sec-research", "sec-fitness"]);
     expect(d.groups[1].title).toBe("Research");
     expect(d.groups[1].tasks).toHaveLength(0);
     expect(d.groups[2].title).toBe("Fitness");
     expect(d.groups[2].tasks).toHaveLength(0);
+
+    const tuesday = breakdownForDay(tasks, allSections, "2026-03-10");
+    expect(tuesday.groups.map((g) => g.id)).toEqual(["builtin-daily", "sec-research"]);
   });
 
   it("keeps custom-section tasks grouped under their section when the section exists", () => {
