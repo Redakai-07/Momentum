@@ -174,3 +174,24 @@ export async function ensureChannel(): Promise<void> {
     /* channel may already exist — fine */
   }
 }
+
+/** Schedule a short-lived native notification for development verification. */
+export async function sendTestNotification(): Promise<boolean> {
+  if (!nativeAvailable()) return false;
+  await ensureChannel();
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: nativeIdForKey(`test:${Date.now()}`),
+        title: "Momentum",
+        body: "This is a test notification.",
+        schedule: { at: new Date(Date.now() + 1_000), allowWhileIdle: true },
+        channelId: "momentum-reminders",
+      }],
+    });
+    return true;
+  } catch (err) {
+    console.error("Momentum: failed to schedule test notification:", err);
+    return false;
+  }
+}

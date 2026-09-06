@@ -48,7 +48,7 @@ export function Field({
 }
 
 const fieldBase =
-  "w-full rounded-lg border border-input bg-card text-foreground placeholder:text-muted-foreground/70 " +
+  "w-full min-w-0 rounded-lg border border-input bg-card text-foreground placeholder:text-muted-foreground/70 " +
   "transition-[border-color,box-shadow,background-color] duration-150 " +
   "focus:outline-none focus:ring-2 focus:ring-ring/60 focus:border-ring/60 " +
   "disabled:cursor-not-allowed disabled:opacity-50";

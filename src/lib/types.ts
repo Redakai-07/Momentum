@@ -90,7 +90,7 @@ export interface CustomSection {
  * The display name is user-configurable (Profile → Settings) and persists in
  * the meta table; this constant is only the initial fallback.
  */
-export const DEFAULT_PROFILE_NAME = "Venkatesh";
+export const DEFAULT_PROFILE_NAME = "User";
 
 export const PROFILE = {
   streakThreshold: 0.7,

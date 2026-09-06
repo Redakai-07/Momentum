@@ -23,7 +23,7 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-lg bg-muted p-0.5",
+        "flex flex-wrap items-center gap-0.5 rounded-lg bg-muted p-0.5",
         className,
       )}
     >

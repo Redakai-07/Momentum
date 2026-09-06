@@ -74,7 +74,7 @@ export function TaskRow({
           : undefined
       }
       className={cn(
-        "group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-150",
+        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors duration-150",
         clickable &&
           "cursor-pointer hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45",
       )}
@@ -99,7 +99,7 @@ export function TaskRow({
         <div className="flex items-center gap-x-2 gap-y-0.5">
           <span
             className={cn(
-              "truncate text-[14.5px] font-medium tracking-tight transition-colors",
+              "break-words text-[14.5px] font-medium tracking-tight transition-colors",
               done
                 ? "text-muted-foreground/70 line-through decoration-muted-foreground/50"
                 : "text-foreground",

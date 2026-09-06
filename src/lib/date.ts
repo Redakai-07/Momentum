@@ -45,6 +45,13 @@ export function dateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Normalize a stored date value to the user's local calendar date. */
+export function normalizeDateKey(value: string | Date): string {
+  if (value instanceof Date) return dateKey(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return dateKey(new Date(value));
+}
+
 export function todayKey(): string {
   return dateKey(new Date());
 }

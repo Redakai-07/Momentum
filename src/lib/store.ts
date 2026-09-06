@@ -19,6 +19,7 @@ import {
   nativeAvailable,
   nativeIdForKey,
   ensureChannel,
+  sendTestNotification,
   type NativeNotifRecord,
 } from "./notifications/service";
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
@@ -95,7 +96,9 @@ type Actions = {
   logTime: (taskId: string, minutes: number, date?: string) => void;
   accomplishTask: (id: string) => void;
   addCustomSection: (input: SectionInput) => void;
+  updateCustomSection: (id: string, patch: Partial<CustomSection>) => void;
   removeCustomSection: (id: string) => void;
+  testNotification: () => Promise<boolean>;
   syncNotifications: () => Promise<void>;
   syncNativeNotifications: () => Promise<void>;
   dismissNotification: (id: string) => void;
@@ -722,6 +725,14 @@ export const useStore = create<MomentumState>()((set, get) => ({
     db.sections.add(section).catch(logError("create section"));
   },
 
+  updateCustomSection: (id, patch) => {
+    const section = get().sections.find((x) => x.id === id);
+    if (!section) return;
+    const next = { ...section, ...patch, name: patch.name?.trim() || section.name };
+    set((s) => ({ sections: s.sections.map((x) => (x.id === id ? next : x)) }));
+    db.sections.put(next).catch(logError("update section"));
+  },
+
   removeCustomSection: (id) => {
     if (get().tasks.some((t) => t.customSectionId === id)) return;
     set((s) => ({ sections: s.sections.filter((x) => x.id !== id) }));
@@ -880,6 +891,12 @@ export const useStore = create<MomentumState>()((set, get) => ({
     }
     devLog("permission requested", permission);
     return permission;
+  },
+
+  testNotification: async () => {
+    const permission = await get().requestNotificationPermission();
+    if (permission !== "granted") return false;
+    return sendTestNotification();
   },
 
   refreshNotificationPermission: async () => {

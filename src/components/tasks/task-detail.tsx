@@ -16,6 +16,7 @@ import { TimeLogControl } from "./time-log-control";
 import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { useStore } from "@/lib/store";
+import { useModalStack } from "@/lib/modal-stack";
 import { sectionLabel, scheduleSummary, timeRange } from "@/lib/labels";
 import { parseKey } from "@/lib/date";
 import { canAccomplish, isTaskAccomplished, isTaskDone } from "@/lib/task-state";
@@ -198,6 +199,12 @@ export function TaskDetailModal({
 }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
   const markInteraction = useStore((s) => s.markInteraction);
+  useModalStack(
+    taskId ? `modal:task-detail:${taskId}` : "modal:task-detail",
+    "Task detail",
+    onClose,
+    Boolean(taskId),
+  );
 
   // Opening a task is a meaningful interaction — the reminder gap restarts.
   useEffect(() => {

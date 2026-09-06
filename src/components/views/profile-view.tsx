@@ -148,6 +148,7 @@ function PermissionRow() {
   const permission = useStore((s) => s.notificationPermission);
   const requestPermission = useStore((s) => s.requestNotificationPermission);
   const refreshPermission = useStore((s) => s.refreshNotificationPermission);
+  const testNotification = useStore((s) => s.testNotification);
 
   const permissionEnabled = permission === "granted";
 
@@ -162,9 +163,14 @@ function PermissionRow() {
         </p>
       </div>
       {permissionEnabled ? (
-        <span className="shrink-0 rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">
-          On
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">On</span>
+          {process.env.NODE_ENV !== "production" && (
+            <button type="button" onClick={() => void testNotification()} className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60">
+              Test notification
+            </button>
+          )}
+        </div>
       ) : permission === "denied" ? (
         <button
           type="button"
@@ -180,6 +186,11 @@ function PermissionRow() {
           className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Allow
+        </button>
+      )}
+      {process.env.NODE_ENV !== "production" && permission !== "granted" && (
+        <button type="button" onClick={() => void testNotification()} className="shrink-0 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60">
+          Test notification
         </button>
       )}
     </div>
@@ -488,13 +499,13 @@ export function ProfileView() {
                     Ordinary reminders are suppressed between these times.
                   </p>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <input
                     type="time"
                     value={notificationSettings.quietStart}
                     onChange={(e) => setNotificationSettings({ quietStart: e.target.value })}
                     aria-label="Quiet hours start"
-                    className="h-8 w-[104px] rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                    className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
                   />
                   <span className="text-xs text-muted-foreground">→</span>
                   <input
@@ -502,7 +513,7 @@ export function ProfileView() {
                     value={notificationSettings.quietEnd}
                     onChange={(e) => setNotificationSettings({ quietEnd: e.target.value })}
                     aria-label="Quiet hours end"
-                    className="h-8 w-[104px] rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                    className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
                   />
                 </div>
               </div>

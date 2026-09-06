@@ -1,6 +1,6 @@
 import { PROFILE, type DailyPerformance, type DayKind, type Task, type TimeLog } from "./types";
 import { taskOccursOn } from "./schedule";
-import { dateKey, parseKey, startOfWeek } from "./date";
+import { dateKey, normalizeDateKey, parseKey, startOfWeek } from "./date";
 
 /** True when at least one time log exists for `taskId` on `date`. */
 function hasLogOn(logs: TimeLog[], taskId: string, date: string): boolean {
@@ -162,9 +162,22 @@ export function yearlyAggregate(recs: DayRec[], today: string): DayAggregate {
  */
 export function currentStreak(recs: DayRec[], todayKey: string): number {
   const threshold = PROFILE.streakThreshold * 100;
+
+  // A given calendar date must be counted at most once. Different callers
+  // pass overlapping slices (stored history + a live today snapshot), and a
+  // fresh user's first qualifying day must produce 1, never 2.
+  const byDate = new Map<string, DayRec>();
+  for (const r of recs) {
+    // The last occurrence for a date wins — callers append the live snapshot
+    // after the stored history, so today's live numbers take precedence.
+    const normalizedDate = normalizeDateKey(r.date);
+    byDate.set(normalizedDate, { ...r, date: normalizedDate });
+  }
+  const unique = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+
   let streak = 0;
-  for (let i = recs.length - 1; i >= 0; i--) {
-    const r = recs[i];
+  for (let i = unique.length - 1; i >= 0; i--) {
+    const r = unique[i];
     if (r.date > todayKey) continue;
     if (r.date === todayKey) {
       if (r.plannedMinutes > 0 && (r.percentage ?? 0) >= threshold) streak += 1;
@@ -180,9 +193,18 @@ export function currentStreak(recs: DayRec[], todayKey: string): number {
 /** Longest streak inside a historical series. */
 export function longestStreak(recs: DayRec[]): number {
   const threshold = PROFILE.streakThreshold * 100;
+
+  // Deduplicate by date so a duplicated today can never inflate the run.
+  const byDate = new Map<string, DayRec>();
+  for (const r of recs) {
+    const normalizedDate = normalizeDateKey(r.date);
+    byDate.set(normalizedDate, { ...r, date: normalizedDate });
+  }
+  const unique = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+
   let best = 0;
   let run = 0;
-  for (const r of recs) {
+  for (const r of unique) {
     if (isNeutralRec(r)) continue;
     if ((r.percentage ?? 0) >= threshold) {
       run += 1;

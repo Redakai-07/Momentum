@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { liveDayRec, pickDayRec, currentStreak } from "@/lib/performance";
 import { dateKey } from "@/lib/date";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { useAndroidBackButton } from "@/lib/modal-stack";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -26,6 +27,10 @@ function ShellInner({ children }: { children: ReactNode }) {
   const syncNotifications = useStore((s) => s.syncNotifications);
   const syncNative = useStore((s) => s.syncNativeNotifications);
   const markInteraction = useStore((s) => s.markInteraction);
+
+  // Intercept Android/iOS back button and browser history pop so that
+  // modals (Create Task, Task Detail) close first instead of exiting the app.
+  useAndroidBackButton();
 
   useEffect(() => {
     boot();
@@ -57,7 +62,7 @@ function ShellInner({ children }: { children: ReactNode }) {
     <div className="min-h-dvh">
       <DesktopSidebar />
       <div className="flex min-h-dvh flex-col lg:pl-[228px]">
-        <main className="w-full flex-1 px-5 pb-28 pt-6 sm:px-8 lg:px-10 lg:pb-16 lg:pt-10">
+        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-6 sm:px-8 lg:px-10 lg:pb-16 lg:pt-10">
           {children}
         </main>
         <MobileNav />

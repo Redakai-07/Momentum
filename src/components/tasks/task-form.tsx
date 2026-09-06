@@ -8,6 +8,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Segmented } from "@/components/ui/segmented";
 import { DayChips } from "./section-days";
 import { useStore } from "@/lib/store";
+import { useModalStack } from "@/lib/modal-stack";
 import type {
   CustomSection,
   Priority,
@@ -38,6 +39,8 @@ function initialSectionKey(task: Task | undefined, fallback: SectionKey): Sectio
 
 export function TaskFormModal({ open, onClose, task, defaultSection = "daily" }: Props) {
   const isEdit = Boolean(task);
+  const id = task ? `modal:edit:${task.id}` : "modal:create-task";
+  useModalStack(id, isEdit ? "Edit task" : "Create task", onClose, open);
   return (
     <Modal
       open={open}
@@ -293,14 +296,14 @@ function TaskFormBody({
                   <DayChips value={days} onChange={setDays} single={scheduleType === "weekly"} />
                 </div>
               )}
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <span className="font-mono text-[11px] text-muted-foreground">Start</span>
                 <Input
                   type="time"
                   value={startTime}
                   onChange={(e) => setStartTime(e.target.value)}
                   aria-label="Start time"
-                  className="h-8 w-[110px] px-2 font-mono text-xs tnum"
+                  className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
                 />
                 <span className="font-mono text-[11px] text-muted-foreground">End</span>
                 <Input
@@ -308,7 +311,7 @@ function TaskFormBody({
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   aria-label="End time"
-                  className="h-8 w-[110px] px-2 font-mono text-xs tnum"
+                  className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
                 />
               </div>
             </div>

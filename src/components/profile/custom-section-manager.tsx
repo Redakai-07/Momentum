@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Layers, Plus, Trash2 } from "lucide-react";
+import { Check, Layers, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
@@ -116,14 +116,14 @@ function SectionFormModal({
           </div>
         )}
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-mono text-[11px] text-muted-foreground">Start</span>
           <Input
             type="time"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
             aria-label="Start time"
-            className="h-8 w-[110px] px-2 font-mono text-xs tnum"
+            className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
           />
           <span className="font-mono text-[11px] text-muted-foreground">End</span>
           <Input
@@ -131,7 +131,7 @@ function SectionFormModal({
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
             aria-label="End time"
-            className="h-8 w-[110px] px-2 font-mono text-xs tnum"
+            className="h-8 min-w-0 flex-1 px-2 font-mono text-xs tnum"
           />
         </div>
 
@@ -152,7 +152,10 @@ export function CustomSectionManager() {
   const sections = useStore((s) => s.sections);
   const tasks = useStore((s) => s.tasks);
   const removeCustomSection = useStore((s) => s.removeCustomSection);
+  const updateCustomSection = useStore((s) => s.updateCustomSection);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
 
   return (
     <div className="space-y-3">
@@ -194,9 +197,33 @@ export function CustomSectionManager() {
                   {s.icon ?? "•"}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13.5px] font-medium text-foreground">
-                    {s.name}
-                  </p>
+                  {editingId === s.id ? (
+                    <form
+                      className="flex min-w-0 items-center gap-1.5"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (editName.trim()) updateCustomSection(s.id, { name: editName });
+                        setEditingId(null);
+                      }}
+                    >
+                      <Input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        maxLength={40}
+                        autoFocus
+                        aria-label={`Rename ${s.name}`}
+                        className="h-8 min-w-0 px-2 text-[13px]"
+                      />
+                      <button type="submit" aria-label="Save section name" className="shrink-0 text-success">
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button type="button" aria-label="Cancel rename" onClick={() => setEditingId(null)} className="shrink-0 text-muted-foreground">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="truncate text-[13.5px] font-medium text-foreground">{s.name}</p>
+                  )}
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {scheduleSummary(s.schedule)}
                     {s.schedule.startTime &&
@@ -206,6 +233,19 @@ export function CustomSectionManager() {
                 <Chip tone={inUse ? "neutral" : "success"}>
                   {count} task{count === 1 ? "" : "s"}
                 </Chip>
+                {editingId !== s.id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(s.id);
+                      setEditName(s.name);
+                    }}
+                    aria-label={`Rename section ${s.name}`}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                  >
+                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={inUse}

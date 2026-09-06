@@ -107,6 +107,44 @@ describe("breakdownForDay — special-task prioritization", () => {
     expect(d.groups[1].tasks.map((t) => t.id)).toEqual(["r1"]);
   });
 
+  it("surfaces all custom sections on Home, even empty ones", () => {
+    const tasks = [T({ id: "d1", title: "DSA", schedule: { type: "daily" } })];
+    const allSections: CustomSection[] = [
+      { id: "sec-research", name: "Research", icon: "🧪", schedule: { type: "daily" }, createdAt: "2026-01-01T00:00:00.000Z" },
+      { id: "sec-fitness", name: "Fitness", icon: "💪", schedule: { type: "weekly", days: [1, 3] }, createdAt: "2026-01-01T00:00:00.000Z" },
+    ];
+    const d = breakdownForDay(tasks, allSections, KEY);
+    // Daily group + both custom sections (Research has no tasks, Fitness has no tasks)
+    expect(d.groups.map((g) => g.id)).toEqual(["builtin-daily", "sec-research", "sec-fitness"]);
+    expect(d.groups[1].title).toBe("Research");
+    expect(d.groups[1].tasks).toHaveLength(0);
+    expect(d.groups[2].title).toBe("Fitness");
+    expect(d.groups[2].tasks).toHaveLength(0);
+  });
+
+  it("keeps custom-section tasks grouped under their section when the section exists", () => {
+    const tasks = [
+      T({
+        id: "r1",
+        title: "Read DL paper",
+        section: "custom",
+        customSectionId: "sec-research",
+        schedule: { type: "daily" },
+        estimatedMinutes: 45,
+      }),
+    ];
+    const d = breakdownForDay(tasks, sections, KEY);
+    expect(d.groups.map((g) => g.id)).toEqual(["sec-research"]);
+    expect(d.groups[0].title).toBe("Research");
+    expect(d.groups[0].tasks.map((t) => t.id)).toEqual(["r1"]);
+  });
+
+  it("does not list Daily when it has no tasks on the day", () => {
+    const tasks: Task[] = [];
+    const d = breakdownForDay(tasks, sections, KEY);
+    expect(d.groups.map((g) => g.id)).toEqual(["sec-research"]);
+  });
+
   it("orders open work before completed within a group", () => {
     const tasks = [
       T({

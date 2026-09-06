@@ -131,6 +131,8 @@
 
   html {
     height: 100%;
+    width: 100%;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -142,6 +144,14 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overscroll-behavior-y: none;
+    width: 100%;
+    min-width: 0;
+  }
+
+  body > * {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 
   html {
@@ -190,6 +200,37 @@
 .tnum {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* Prevent flex/grid children and form controls from overflowing the viewport.
+   Samsung WebView (and some Chrome Android versions) will not shrink
+   input[type=time] / input[type=date] below their intrinsic width unless
+   min-width: 0 is explicit on the flex/grid child. */
+.grid > *,
+.flex > *,
+.grid-cols-2 > *,
+.grid-cols-3 > *,
+.grid-cols-4 > *,
+.grid-cols-7 > *,
+.flex-wrap > * {
+  min-width: 0;
+}
+
+input[type="time"],
+input[type="date"],
+input[type="datetime-local"] {
+  min-width: 0;
+  max-width: 100%;
+  -webkit-text-fill-color: unset;
+}
+
+/* Native time/date pickers on Android can be wider than their CSS width;
+   allow them to shrink by removing the default min-width that some browsers
+   apply to these controls. The -webkit-matrix transform is a known workaround
+   for the Android WebView minimum-width bug on select-like controls. */
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 1;
 }
 
 /* ------------------------------------------------------------------ */

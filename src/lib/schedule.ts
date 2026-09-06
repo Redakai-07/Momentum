@@ -92,8 +92,14 @@ export function breakdownForDay(
   }
 
   if (builtins[0].tasks.length > 0) groups.push(builtins[0]);
-  for (const g of customGroups.values()) {
-    if (g.tasks.length > 0) groups.push(g);
+  for (const s of sections) {
+    // Always surface every custom section on Home — even empty ones — so users
+    // can see their sections and add tasks to them.
+    let g = customGroups.get(s.id);
+    if (!g) {
+      g = { id: s.id, title: s.name, icon: s.icon, tasks: [] };
+    }
+    groups.push(g);
   }
 
   const sortTasks = (a: Task, b: Task) => {

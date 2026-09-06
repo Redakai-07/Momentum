@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, Flame, ListChecks, Plus, Sparkles } from "lucide-react";
+import { ChevronRight, Flame, Layers, ListChecks, Plus, Sparkles } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
 import { useNow } from "@/lib/hooks";
 import { useStore } from "@/lib/store";
@@ -60,7 +60,7 @@ function GroupSection({
             {title}
           </h2>
           <span className="font-mono text-[10.5px] tnum text-muted-foreground">
-            {open > 0 ? `${open} left` : "done"}
+            {open > 0 ? `${open} left` : open === 0 && tasks.length > 0 ? "done" : "empty"}
           </span>
           {sub && (
             <span className="hidden truncate font-mono text-[10.5px] text-muted-foreground/70 sm:block">
@@ -77,11 +77,17 @@ function GroupSection({
           <Plus className="h-4 w-4" strokeWidth={2} />
         </button>
       </div>
-      <ListShell>
-        {tasks.map((t) => (
-          <TaskRow key={t.id} task={t} onOpen={onOpen} onToggle={onToggle} />
-        ))}
-      </ListShell>
+      {tasks.length === 0 ? (
+        <div className="px-4 py-4 text-center text-[13px] text-muted-foreground">
+          No tasks yet — tap + to add one.
+        </div>
+      ) : (
+        <ListShell>
+          {tasks.map((t) => (
+            <TaskRow key={t.id} task={t} onOpen={onOpen} onToggle={onToggle} />
+          ))}
+        </ListShell>
+      )}
     </section>
   );
 }
@@ -143,7 +149,11 @@ export function TodayView() {
       recoveryYesterday,
       openTotal,
       doneTotal,
-      isEmpty: openTotal === 0 && doneTotal === 0 && breakdown.specials.length === 0,
+      isEmpty:
+        openTotal === 0 &&
+        doneTotal === 0 &&
+        breakdown.specials.length === 0 &&
+        breakdown.groups.length === 0,
     };
   }, [now, tasks, sections, logs, history]);
 
@@ -272,6 +282,15 @@ export function TodayView() {
               <span className="flex-1 font-medium text-foreground">Occasional</span>
               <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
             </Link>
+            {sections.map((section) => (
+              <div key={section.id} className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px]">
+                <Layers className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                <span className="min-w-0 flex-1 break-words font-medium text-foreground">
+                  {section.icon ? `${section.icon} ` : ""}{section.name}
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" strokeWidth={2} />
+              </div>
+            ))}
             <p className="px-1 pt-1 text-xs leading-relaxed text-muted-foreground/80">
               Remainder holds tasks that need finishing. Occasional is your someday list.
             </p>

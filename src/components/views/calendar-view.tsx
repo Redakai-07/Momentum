@@ -129,7 +129,7 @@ export function CalendarView() {
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div>
-            <div className="grid grid-cols-7">
+            <div className="grid grid-cols-7 min-w-0">
               {WEEKDAYS_MON_FIRST.map((d) => (
                 <div
                   key={d}
@@ -139,7 +139,7 @@ export function CalendarView() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl border border-border bg-muted/70">
+            <div className="grid grid-cols-7 gap-px min-w-0 overflow-hidden rounded-xl border border-border bg-muted/70">
               {cells.map((c) => {
                 const key = dateKey(c.date);
                 const inMonth = isSameMonth(c.date, view);
@@ -160,7 +160,7 @@ export function CalendarView() {
                       }
                     }}
                     className={cn(
-                      "group relative flex h-[52px] flex-col items-center justify-between py-1 transition-colors sm:h-14 lg:h-[62px]",
+                      "group relative flex h-[52px] flex-col items-center justify-between py-1 transition-colors sm:h-14 lg:h-[62px] min-w-0",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60",
                       !inMonth && "bg-card/40",
                       isSelected
