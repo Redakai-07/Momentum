@@ -106,6 +106,23 @@ describe("new-day task reset", () => {
     ).toBe(false);
   });
 
+  it("does not reopen remainder tasks", () => {
+    expect(
+      needsNewDayReset(
+        base({
+          id: "remainder-task",
+          title: "Finish the report",
+          section: "remainder",
+          status: "completed",
+          completedAt: "2026-09-06T18:00:00.000Z",
+          remainingMinutes: 0,
+        }),
+        "2026-09-07",
+        false,
+      ),
+    ).toBe(false);
+  });
+
   it("resets partial work only when it has no time logged today", () => {
     const task = base({ id: "partial", title: "Partial", remainingMinutes: 30 });
     expect(needsNewDayReset(task, "2026-09-07", false)).toBe(true);

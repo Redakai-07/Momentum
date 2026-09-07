@@ -15,7 +15,10 @@ export const isTaskOpen = (t: Task): boolean => t.status === "active";
 
 /** Whether a task's completed or partial state belongs to an earlier day. */
 export function needsNewDayReset(task: Task, today: string, loggedToday: boolean): boolean {
-  if (task.section === "occasional" || task.status === "accomplished") return false;
+  if (
+    (task.section === "occasional" || task.section === "remainder") ||
+    task.status === "accomplished"
+  ) return false;
 
   const completedDay = task.completedAt ? dateKey(new Date(task.completedAt)) : null;
   if (task.status === "completed") return completedDay !== null && completedDay < today;
