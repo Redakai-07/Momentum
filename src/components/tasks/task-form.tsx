@@ -242,7 +242,7 @@ function TaskFormBody({
 
           <Field label="Next action" hint="optional — the concrete next step">
             <Input
-              placeholder="e.g. Complete 3Sum using two pointers"
+              placeholder="e.g. Complete problem using two pointers"
               value={nextAction}
               onChange={(e) => setNextAction(e.target.value)}
               maxLength={160}

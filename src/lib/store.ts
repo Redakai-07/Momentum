@@ -23,7 +23,7 @@ import {
   type NativeNotifRecord,
 } from "./notifications/service";
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
-import { canAccomplish, isTaskDone, toAccomplished } from "./task-state";
+import { canAccomplish, isTaskDone, needsNewDayReset, toAccomplished } from "./task-state";
 import {
   DEFAULT_PROFILE_NAME,
   type CustomSection,
@@ -180,15 +180,6 @@ export async function getFirstRunDate(): Promise<string | null> {
     return null;
   }
 }
-
-const isoDay = (iso?: string): string | null => {
-  if (!iso) return null;
-  try {
-    return dateKey(new Date(iso));
-  } catch {
-    return null;
-  }
-};
 
 function replaceToday(history: DailyPerformance[], rec: DailyPerformance): DailyPerformance[] {
   const idx = history.findIndex((h) => h.date === rec.date);
@@ -369,25 +360,13 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
   const rolloverChanges: Task[] = [];
   const rolledTasks: Task[] = tasks.map((t) => {
-    if (!t.schedule) return t;
-    const doneDay = isoDay(t.completedAt);
-    if (t.status === "completed" && doneDay !== null && doneDay < today) {
+    if (needsNewDayReset(t, today, loggedToday.has(t.id))) {
       const n: Task = {
         ...t,
         status: "active",
         completedAt: undefined,
         remainingMinutes: t.estimatedMinutes,
       };
-      rolloverChanges.push(n);
-      return n;
-    }
-    if (
-      t.status === "active" &&
-      t.remainingMinutes < t.estimatedMinutes &&
-      !loggedToday.has(t.id) &&
-      doneDay !== today
-    ) {
-      const n: Task = { ...t, remainingMinutes: t.estimatedMinutes };
       rolloverChanges.push(n);
       return n;
     }

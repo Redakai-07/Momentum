@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAccomplish, toAccomplished } from "./task-state";
+import { canAccomplish, needsNewDayReset, toAccomplished } from "./task-state";
 import type { Task } from "./types";
 
 const base = (o: Partial<Task> & { id: string; title: string }): Task => ({
@@ -67,6 +67,49 @@ describe("accomplishment conversion", () => {
     const out = toAccomplished(task, "2026-09-04T18:00:00.000Z");
     expect(out.completedAt).toBe("2026-09-04T08:30:00.000Z");
     expect(out.accomplishedAt).toBe("2026-09-04T18:00:00.000Z");
+  });
+});
+
+describe("new-day task reset", () => {
+  it("reopens completed non-occasional tasks, including custom tasks", () => {
+    expect(
+      needsNewDayReset(
+        base({
+          id: "custom-task",
+          title: "Research",
+          section: "custom",
+          customSectionId: "research",
+          status: "completed",
+          completedAt: "2026-09-06T18:00:00.000Z",
+          remainingMinutes: 0,
+        }),
+        "2026-09-07",
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not reopen occasional tasks", () => {
+    expect(
+      needsNewDayReset(
+        base({
+          id: "occasional-task",
+          title: "Visit Hampi",
+          section: "occasional",
+          status: "completed",
+          completedAt: "2026-09-06T18:00:00.000Z",
+          remainingMinutes: 0,
+        }),
+        "2026-09-07",
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  it("resets partial work only when it has no time logged today", () => {
+    const task = base({ id: "partial", title: "Partial", remainingMinutes: 30 });
+    expect(needsNewDayReset(task, "2026-09-07", false)).toBe(true);
+    expect(needsNewDayReset(task, "2026-09-07", true)).toBe(false);
   });
 });
 

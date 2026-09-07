@@ -1,3 +1,4 @@
+import { dateKey } from "./date";
 import type { Task } from "./types";
 
 /** Done = finished today's work OR permanently accomplished. */
@@ -11,6 +12,16 @@ export const isTaskAccomplished = (t: Task): boolean => t.status === "accomplish
 
 /** Still part of active work. */
 export const isTaskOpen = (t: Task): boolean => t.status === "active";
+
+/** Whether a task's completed or partial state belongs to an earlier day. */
+export function needsNewDayReset(task: Task, today: string, loggedToday: boolean): boolean {
+  if (task.section === "occasional" || task.status === "accomplished") return false;
+
+  const completedDay = task.completedAt ? dateKey(new Date(task.completedAt)) : null;
+  if (task.status === "completed") return completedDay !== null && completedDay < today;
+
+  return task.remainingMinutes < task.estimatedMinutes && !loggedToday && completedDay !== today;
+}
 
 /** Tasks that can become accomplishments (bucket-list items cannot). */
 export const canAccomplish = (t: Task): boolean =>

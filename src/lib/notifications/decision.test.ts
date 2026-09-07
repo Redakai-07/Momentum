@@ -172,7 +172,7 @@ describe("shouldNotify — intelligent notification decisions", () => {
         id: "dsa",
         title: "DSA",
         estimatedMinutes: 90,
-        nextAction: "Complete 3Sum using the two-pointer approach",
+        nextAction: "Complete problem using the two-pointer approach",
       }),
     ];
     const d = shouldNotify(
@@ -184,7 +184,7 @@ describe("shouldNotify — intelligent notification decisions", () => {
     );
     expect(d.shouldNotify).toBe(true);
     expect(d.reason).toBe("next_action");
-    expect(d.message).toContain("Complete 3Sum using the two-pointer approach");
+    expect(d.message).toContain("Complete problem using the two-pointer approach");
   });
 
   it("11. no next action → falls back to the task title", () => {

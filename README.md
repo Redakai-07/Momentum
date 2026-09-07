@@ -86,3 +86,54 @@ scripts/               Asset generation utilities
 ```
 
 Business rules are kept in pure functions under `src/lib` and covered by focused tests, so scheduling, workload, performance, and streak behavior stays deterministic.
+
+## Build and install the Android APK on Windows
+
+This produces a debug APK from the source code. You do not need Android Studio to run the Gradle command, but you do need the Android SDK and a compatible JDK installed and configured. Android Studio is the easiest way to install and configure those tools.
+
+### Prerequisites
+
+Install the following before starting:
+
+- [Git](https://git-scm.com/download/win)
+- [Node.js](https://nodejs.org/) (use the current LTS release; npm is included)
+- [Android Studio](https://developer.android.com/studio), or the Android SDK command-line tools
+- A JDK supported by Android Gradle Plugin 8.13 (JDK 17 or newer)
+- Android SDK Platform 36 and the Android SDK build tools, with `ANDROID_HOME` or `ANDROID_SDK_ROOT` configured if the SDK is not in the default location
+
+### Build the APK
+
+Open Command Prompt or PowerShell and run:
+
+```powershell
+git clone https://github.com/Redakai-07/Momentum.git
+cd Momentum
+npm install
+npm run build
+npx cap sync android
+cd android
+.\gradlew.bat assembleDebug
+```
+
+The build may take a few minutes the first time because Gradle downloads its dependencies. The generated APK is here:
+
+```text
+android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+### Install the APK on a connected Android device
+
+Enable Developer options and USB debugging on the device, connect it by USB, then run this from the repository's `android` directory:
+
+```powershell
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+If `adb` is not recognized, add the Android SDK `platform-tools` directory to your `PATH`, or copy the APK to the phone and open it there. Android may require allowing installation from unknown sources for the app used to open the APK.
+
+This is a debug build for testing. It is not signed for Play Store distribution.
+
+
+
+
+### YOU CAN ALSO GET THE RELEASED VERSION IN THE 'released_apks' Directory
