@@ -5,12 +5,17 @@ import { useEffect, useRef, useState } from "react";
 /**
  * True only after the component has mounted on the client. The update is
  * scheduled asynchronously so the first server/client renders match.
+ *
+ * Deliberately a timer rather than requestAnimationFrame: rAF only fires when
+ * the page is actually being painted, so a backgrounded or non-compositing
+ * WebView (energy saver, headless capture, some Android WebViews during
+ * startup) would leave every screen that gates on this stuck on its skeleton.
  */
 export function useMounted(): boolean {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    const id = window.requestAnimationFrame(() => setMounted(true));
-    return () => window.cancelAnimationFrame(id);
+    const id = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(id);
   }, []);
   return mounted;
 }
