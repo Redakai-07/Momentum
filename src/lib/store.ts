@@ -30,6 +30,15 @@ import {
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
 import { canAccomplish, isTaskDone, rolloverTasks, toAccomplished } from "./task-state";
 import {
+  buildBackup,
+  serializeBackup,
+  summarizeBackup,
+  backupFilename,
+  type BackupCounts,
+  type MomentumBackup,
+} from "./backup";
+import { saveBackup, type SaveDestination } from "./backup-io";
+import {
   DEFAULT_PROFILE_NAME,
   type CustomSection,
   type DailyPerformance,
@@ -92,6 +101,24 @@ export interface NoteInput {
 
 export type NotificationSettingsPatch = Partial<NotificationSettings>;
 
+export interface ExportBackupResult {
+  ok: boolean;
+  filename?: string;
+  bytes?: number;
+  counts?: BackupCounts;
+  destination?: SaveDestination;
+  uri?: string;
+  error?: string;
+}
+
+export interface ImportBackupResult {
+  ok: boolean;
+  counts?: BackupCounts;
+  /** The automatic pre-import copy of the data that was replaced. */
+  safety?: { ok: boolean; filename: string; error?: string };
+  error?: string;
+}
+
 /**
  * Persistent timestamps that drive the notification intelligence.
  * All values are ISO strings; stored in the meta table so they survive
@@ -125,6 +152,8 @@ type State = {
   lastTestNotification: TestNotificationResult | null;
   /** Display name shown in the greeting and on the profile (persisted in meta). */
   profileName: string;
+  /** When the user last exported a backup (persisted in meta), or null. */
+  lastBackupAt: string | null;
 };
 
 type Actions = {
@@ -152,6 +181,15 @@ type Actions = {
   addNote: (input: NoteInput) => string;
   updateNote: (id: string, patch: Partial<Note>) => void;
   removeNote: (id: string) => void;
+
+  /* Data & Backup — the user's portable copy of everything above. */
+  /** Write a complete backup of the persistent data and hand it to the user. */
+  exportBackup: () => Promise<ExportBackupResult>;
+  /**
+   * Atomically replace all persistent data with a validated backup, after
+   * automatically saving a safety copy of what is being replaced.
+   */
+  importBackup: (backup: MomentumBackup) => Promise<ImportBackupResult>;
   testNotification: () => Promise<TestNotificationResult>;
   /** Re-read the native notification pipeline snapshot (diagnostics only). */
   refreshNotificationDiagnostics: () => Promise<void>;
@@ -262,6 +300,51 @@ async function persistDayRec(tasks: Task[], logs: TimeLog[], key: string, sectio
 const logError = (where: string) => (err: unknown) => {
   console.error(`Momentum: ${where} failed to persist:`, err);
 };
+
+/* ------------------------------------------------------------------ */
+/* Data & Backup helpers                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The theme preference is the one setting that lives in localStorage rather
+ * than IndexedDB, so a backup has to read it separately. It travels with the
+ * backup, but IndexedDB stays the source of truth for the accent colour.
+ */
+function readStoredTheme(): string | null {
+  try {
+    const v = localStorage.getItem("momentum:theme");
+    return v === "light" || v === "dark" || v === "system" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read every user-owned table as one consistent set and assemble a backup.
+ * `notifications` is intentionally absent: it is a rebuildable runtime queue,
+ * and its native alarm IDs belong to this device.
+ */
+async function buildCurrentBackup(): Promise<MomentumBackup> {
+  const [tasks, logs, sections, performance, hobbies, notes, meta] = await Promise.all([
+    db.tasks.toArray(),
+    db.logs.toArray(),
+    db.sections.toArray(),
+    db.performance.toArray(),
+    db.hobbies.toArray(),
+    db.notes.toArray(),
+    db.meta.toArray(),
+  ]);
+  return buildBackup({
+    tasks,
+    logs,
+    sections,
+    performance,
+    hobbies,
+    notes,
+    meta,
+    theme: readStoredTheme(),
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* Native notification helpers                                         */
@@ -458,6 +541,7 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   const notificationMeta = await readNotificationMeta();
   let storedPermission = await readMetaValue<string>("notificationPermissionState");
   const storedName = await readMetaValue<string>("profileName");
+  const storedBackupAt = await readMetaValue<string>("lastBackupAt");
 
   // Never trust a cached permission: the user may have revoked notifications
   // from Android settings since the last launch. Re-check on every boot.
@@ -482,6 +566,7 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
     notificationMeta,
     notificationPermission: storedPermission ?? (nativeAvailable() ? "prompt" : "granted"),
     profileName: storedName ?? DEFAULT_PROFILE_NAME,
+    lastBackupAt: typeof storedBackupAt === "string" ? storedBackupAt : null,
   });
 
   // App opened = the user interacted. Feed the drift math.
@@ -564,6 +649,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
   notificationDiagnostics: null,
   lastTestNotification: null,
   profileName: DEFAULT_PROFILE_NAME,
+  lastBackupAt: null,
 
   boot: () => {
     if (!bootPromise) {
@@ -940,6 +1026,142 @@ export const useStore = create<MomentumState>()((set, get) => ({
   removeNote: (id) => {
     set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }));
     db.notes.delete(id).catch(logError("delete note"));
+  },
+
+  /* --------------------------- Data & Backup ------------------------- */
+
+  exportBackup: async () => {
+    try {
+      const backup = await buildCurrentBackup();
+      const json = serializeBackup(backup);
+      const filename = backupFilename("momentum-backup");
+      const saved = await saveBackup(json, filename);
+      if (!saved.ok) {
+        return { ok: false, error: saved.error ?? "The backup file could not be saved." };
+      }
+      const now = new Date().toISOString();
+      await writeMetaValue("lastBackupAt", now);
+      set({ lastBackupAt: now });
+      return {
+        ok: true,
+        filename,
+        bytes: json.length,
+        counts: summarizeBackup(backup, json.length).counts,
+        destination: saved.destination,
+        uri: saved.uri,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "The backup could not be created.",
+      };
+    }
+  },
+
+  importBackup: async (backup) => {
+    const counts = summarizeBackup(backup).counts;
+
+    // 1. Safety copy of exactly what is about to be replaced. If it cannot be
+    //    written we stop here: the purpose of this feature is that data is
+    //    never lost, so an un-backed-up overwrite is not acceptable.
+    const safetyName = backupFilename("momentum-pre-import-backup");
+    let safety: { ok: boolean; filename: string; error?: string };
+    try {
+      const current = await buildCurrentBackup();
+      const saved = await saveBackup(serializeBackup(current), safetyName);
+      safety = saved.ok
+        ? { ok: true, filename: safetyName }
+        : { ok: false, filename: safetyName, error: saved.error };
+    } catch (err) {
+      safety = {
+        ok: false,
+        filename: safetyName,
+        error: err instanceof Error ? err.message : "Unknown error",
+      };
+    }
+    if (!safety.ok) {
+      return {
+        ok: false,
+        safety,
+        error:
+          "Momentum couldn't save a safety copy of your current data, so nothing was changed. " +
+          "Allow downloads for Momentum and try again.",
+      };
+    }
+
+    // 2. One transaction across every table, so a failure half-way through
+    //    rolls the entire import back and leaves the existing data intact.
+    try {
+      await db.transaction(
+        "rw",
+        [
+          db.tasks,
+          db.logs,
+          db.sections,
+          db.performance,
+          db.hobbies,
+          db.notes,
+          db.notifications,
+          db.meta,
+        ],
+        async () => {
+          await db.tasks.clear();
+          await db.tasks.bulkAdd(backup.data.tasks);
+          await db.logs.clear();
+          await db.logs.bulkAdd(backup.data.logs);
+          await db.sections.clear();
+          await db.sections.bulkAdd(backup.data.sections);
+          await db.performance.clear();
+          await db.performance.bulkAdd(backup.data.performance);
+          await db.hobbies.clear();
+          await db.hobbies.bulkAdd(backup.data.hobbies);
+          await db.notes.clear();
+          await db.notes.bulkAdd(backup.data.notes);
+          // The reminder queue is rebuilt from the restored tasks; carrying the
+          // previous queue over would duplicate reminders and reference alarms
+          // that belong to the old data.
+          await db.notifications.clear();
+
+          // Only the allowlisted settings are overwritten. Device facts such as
+          // the notification permission and the rollover marker are left alone,
+          // because they describe this phone, not the backup.
+          for (const [key, value] of Object.entries(backup.data.settings.meta)) {
+            await db.meta.put({ key, value });
+          }
+        },
+      );
+    } catch (err) {
+      logError("import backup")(err);
+      return {
+        ok: false,
+        safety,
+        error:
+          err instanceof Error
+            ? `The import failed and your existing data was left unchanged. (${err.message})`
+            : "The import failed and your existing data was left unchanged.",
+      };
+    }
+
+    // 3. Preferences that live outside IndexedDB.
+    try {
+      const theme = backup.data.settings.theme;
+      if (theme) localStorage.setItem("momentum:theme", theme);
+    } catch {
+      /* Storage may be unavailable — the import itself already succeeded. */
+    }
+
+    // 4. Re-hydrate through the normal boot pipeline. This is what makes the
+    //    restore complete rather than merely written: recurring work reopens
+    //    for today's date, today's performance snapshot is rebuilt, recovery
+    //    days are reclassified, and the reminder queue is re-planned.
+    try {
+      bootPromise = null;
+      await get().boot();
+    } catch (err) {
+      logError("reload after import")(err);
+    }
+
+    return { ok: true, counts, safety };
   },
 
   /* --------------------------- Notifications ------------------------- */

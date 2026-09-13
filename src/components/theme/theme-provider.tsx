@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -21,11 +22,44 @@ interface ThemeCtx {
   cycle: () => void;
   accentColor: AccentColor;
   setAccentColor: (color: AccentColor) => void;
+  /**
+   * Re-read the persisted appearance preferences and apply them.
+   *
+   * Needed after a backup restore, which rewrites both the stored theme and the
+   * stored accent behind this provider's back — without this the imported
+   * preferences would not take effect until the next app launch.
+   */
+  refreshPreferences: () => void;
 }
 
 const Ctx = createContext<ThemeCtx | null>(null);
 const KEY = "momentum:theme";
 const ACCENT_KEY = "accentColor";
+
+const ACCENT_VALUES: AccentColor[] = [
+  "default",
+  "blue",
+  "purple",
+  "green",
+  "orange",
+  "red",
+  "pink",
+  "teal",
+];
+
+function isAccent(v: unknown): v is AccentColor {
+  return typeof v === "string" && (ACCENT_VALUES as string[]).includes(v);
+}
+
+/** Read the persisted accent colour from IndexedDB (its source of truth). */
+async function readStoredAccent(): Promise<AccentColor> {
+  try {
+    const row = await db.meta.get(ACCENT_KEY);
+    return isAccent(row?.value) ? row.value : "default";
+  } catch {
+    return "default";
+  }
+}
 
 function resolve(t: Theme): boolean {
   return (
@@ -62,19 +96,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [accentColor, setAccentColorState] = useState<AccentColor>("default");
   const skipApply = useRef(true);
 
+  /** Re-read both stored preferences and apply them to state + the DOM. */
+  const refreshPreferences = useCallback(() => {
+    const stored = readStored();
+    apply(stored);
+    setThemeState(stored);
+    setEffective(resolve(stored) ? "dark" : "light");
+    void readStoredAccent().then((color) => {
+      setAccentColorState(color);
+      applyAccent(color);
+    });
+  }, []);
+
   // Reconciliation after mount (avoids a hydration mismatch). The DOM
   // class is applied synchronously — the init script already did this
   // pre-paint — while state is reconciled on the next frame.
   useEffect(() => {
     const stored = readStored();
     apply(stored);
-    void db.meta.get(ACCENT_KEY).then((row) => {
-      const value = row?.value;
-      if (typeof value === "string" && ["default", "blue", "purple", "green", "orange", "red", "pink", "teal"].includes(value)) {
-        const color = value as AccentColor;
-        setAccentColorState(color);
-        applyAccent(color);
-      }
+    void readStoredAccent().then((color) => {
+      setAccentColorState(color);
+      applyAccent(color);
     });
     const id = window.requestAnimationFrame(() => {
       setThemeState(stored);
@@ -133,8 +175,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           /* IndexedDB remains the source of truth when storage is unavailable. */
         }
       },
+      refreshPreferences,
     }),
-    [theme, effective, accentColor],
+    [theme, effective, accentColor, refreshPreferences],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

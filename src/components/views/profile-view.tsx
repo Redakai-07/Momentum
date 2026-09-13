@@ -34,6 +34,7 @@ import {
 } from "@/components/profile/performance-viz";
 import { ActivityFeed, StreakTile } from "@/components/profile/profile-stats";
 import { CustomSectionManager } from "@/components/profile/custom-section-manager";
+import { DataBackupSection } from "@/components/profile/data-backup";
 import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { Segmented } from "@/components/ui/segmented";
 import { ListShell, EmptyState, ListSkeleton } from "@/components/ui/list";
@@ -727,13 +728,9 @@ export function ProfileView() {
             </p>
           </section>
 
-          <section className="rounded-xl border border-dashed border-border px-4 py-4">
-            <p className="text-[13px] font-medium text-foreground">Your data</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Everything lives in this app&apos;s local database on this device. No account, no
-              cloud, no tracking — Momentum works fully offline.
-            </p>
-          </section>
+          {/* Replaces the old read-only "Your data" note: the same promise, now
+              with the export/import controls that make it actionable. */}
+          <DataBackupSection />
 
           <p className="pb-2 text-center font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground/70">
             Momentum · local-first · your data never leaves this device
