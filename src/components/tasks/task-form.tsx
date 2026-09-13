@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, ChevronDown, Plus } from "lucide-react";
+import { CheckCircle2, ChevronDown, Plus, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
@@ -11,7 +11,10 @@ import { useModalStack } from "@/lib/modal-stack";
 import type {
   Priority,
   Task,
+  TaskDuration,
 } from "@/lib/types";
+import { normalizeDuration, plannedMinutesOf } from "@/lib/duration";
+import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { scheduleSummary } from "@/lib/labels";
 
@@ -70,10 +73,20 @@ function TaskFormBody({
   const isEdit = Boolean(task);
 
   const startingSection = initialSectionKey(task, defaultSection);
+  // Reminder and Occasional work often has no meaningful duration ("Submit
+  // scholarship form"), so those sections start with an empty, optional field.
+  const startsUntimed = startingSection === "remainder" || startingSection === "occasional";
   const [sectionKey, setSectionKey] = useState<SectionKey>(startingSection);
   const [title, setTitle] = useState(task?.title ?? "");
-  const [hours, setHours] = useState(task ? Math.floor(task.estimatedMinutes / 60) : 0);
-  const [mins, setMins] = useState(task ? task.estimatedMinutes % 60 : 30);
+  // Kept as strings so "no duration" is representable without a fake 0/30.
+  const [hours, setHours] = useState(() => {
+    const planned = task ? plannedMinutesOf(task) : startsUntimed ? 0 : 30;
+    return planned > 0 ? String(Math.floor(planned / 60)) : "";
+  });
+  const [mins, setMins] = useState(() => {
+    const planned = task ? plannedMinutesOf(task) : startsUntimed ? 0 : 30;
+    return planned > 0 ? String(planned % 60) : "";
+  });
   const [dueDate, setDueDate] = useState(task?.dueDate ?? "");
   const [priority, setPriority] = useState<Priority>(task?.priority ?? "medium");
   const [description, setDescription] = useState(task?.description ?? "");
@@ -83,7 +96,9 @@ function TaskFormBody({
   const pickSection = (key: SectionKey) => {
     setSectionKey(key);
   };
-  const estimatedMinutes = (Number(hours) || 0) * 60 + (Number(mins) || 0);
+  const enteredMinutes = (Number(hours) || 0) * 60 + (Number(mins) || 0);
+  // `null` is the explicit "no duration" representation — never a fake default.
+  const estimatedMinutes: TaskDuration = normalizeDuration(enteredMinutes);
   const canSubmit = title.trim().length > 0;
   const selectedSchedule = sectionKey.startsWith("custom:")
     ? sections.find((section) => section.id === sectionKey.slice("custom:".length))?.schedule
@@ -169,16 +184,17 @@ function TaskFormBody({
           )}
         </Field>
 
-        <Field label="Estimated time">
+        <Field label="Estimated time" hint="optional">
           <div className="flex items-center gap-1.5">
             <Input
               type="number"
               min={0}
               max={24}
               value={hours}
-              onChange={(e) => setHours(Number(e.target.value))}
+              placeholder="–"
+              onChange={(e) => setHours(e.target.value)}
               aria-label="Hours"
-              className="px-2 text-center font-mono tnum"
+              className="min-w-0 flex-1 px-2 text-center font-mono tnum"
             />
             <span className="font-mono text-[11px] text-muted-foreground">hr</span>
             <Input
@@ -187,12 +203,32 @@ function TaskFormBody({
               max={59}
               step={5}
               value={mins}
-              onChange={(e) => setMins(Number(e.target.value))}
+              placeholder="–"
+              onChange={(e) => setMins(e.target.value)}
               aria-label="Minutes"
-              className="px-2 text-center font-mono tnum"
+              className="min-w-0 flex-1 px-2 text-center font-mono tnum"
             />
             <span className="font-mono text-[11px] text-muted-foreground">min</span>
+            {estimatedMinutes !== null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHours("");
+                  setMins("");
+                }}
+                aria-label="Remove duration"
+                title="Remove duration"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            )}
           </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {estimatedMinutes !== null
+              ? `${formatMinutes(enteredMinutes)} planned · counts toward today's progress`
+              : "No duration — this task is tracked by completion only."}
+          </p>
         </Field>
       </div>
 

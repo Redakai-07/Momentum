@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import { App } from "@capacitor/app";
 
 /**
@@ -26,8 +26,8 @@ export interface ModalStackEntry {
   dismiss: () => void;
 }
 
-let stackRef: { current: ModalStackEntry[] } = { current: [] };
-let listenersRef: { current: Set<(count: number) => void> } = { current: new Set() };
+const stackRef: { current: ModalStackEntry[] } = { current: [] };
+const listenersRef: { current: Set<(count: number) => void> } = { current: new Set() };
 
 function notify() {
   for (const l of listenersRef.current) l(stackRef.current.length);

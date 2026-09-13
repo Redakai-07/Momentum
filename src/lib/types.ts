@@ -25,6 +25,21 @@ export type SectionKind = "daily" | "remainder" | "occasional" | "custom";
 export type Priority = "low" | "medium" | "high";
 
 /**
+ * Planned duration of a task, in minutes.
+ *
+ * Momentum has two kinds of task:
+ *
+ * - **time-based** (`estimatedMinutes > 0`) — Daily and custom-section work
+ *   where planned/completed/remaining minutes matter. These contribute to the
+ *   time-based daily performance.
+ * - **completion-based** (`estimatedMinutes === null`) — Reminder and
+ *   Occasional items where a duration is meaningless ("Submit scholarship
+ *   form"). These are tracked purely by completion state and never contribute
+ *   planned or completed minutes, so they can never distort performance.
+ */
+export type TaskDuration = number | null;
+
+/**
  * Lifecycle of a task.
  * - `active`      still part of your daily/backlog work
  * - `completed`   finished (day-level for recurring tasks, permanent for one-offs)
@@ -37,9 +52,14 @@ export interface Task {
   title: string;
   section: SectionKind;
   customSectionId?: string;
-  /** Total time this task is planned to take, in minutes. */
-  estimatedMinutes: number;
-  /** What is left today / for this instance, in minutes. */
+  /**
+   * Planned time for this task in minutes, or `null` for completion-based
+   * work (see {@link TaskDuration}). Legacy rows may still carry `undefined`
+   * or `0`; use the helpers in lib/duration.ts rather than reading this
+   * directly.
+   */
+  estimatedMinutes: TaskDuration;
+  /** What is left today / for this instance, in minutes (always 0 when untimed). */
   remainingMinutes: number;
   description?: string;
   /** Concrete next step — turns vague tasks into actionable ones. */

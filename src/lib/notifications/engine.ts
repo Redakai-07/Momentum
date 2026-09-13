@@ -1,7 +1,7 @@
 import { NOTIFICATION_DEFAULTS } from "../config";
 import { addDaysKey, dateKey } from "../date";
 import { scheduleForTask, taskOccursOn } from "../schedule";
-import { isTaskDone } from "../task-state";
+import { isTaskDoneOn } from "../task-state";
 import type { CustomSection, Task, TimeLog } from "../types";
 import { notifKey, type NotificationSettings, type TaskNotification } from "./types";
 
@@ -47,7 +47,7 @@ function parseHHMM(t: string): { h: number; m: number } | null {
 export function pickNextTask(today: string, tasks: Task[], sections: CustomSection[] = []): Task | null {
   const candidates = tasks.filter(
     (t) =>
-      !isTaskDone(t) &&
+      !isTaskDoneOn(t, today) &&
       taskOccursOn(t, today, sections) &&
       (t.section === "daily" || t.section === "custom" || t.dueDate === today),
   );
@@ -128,7 +128,9 @@ export function planNotifications(ctx: NotifContext): EngineResult {
       continue;
     }
     if (n.status === "scheduled") {
-      const done = !task || isTaskDone(task);
+      // Date-aware: a recurring task completed on an earlier day is *not* done
+      // today, so its reminder stays valid.
+      const done = !task || isTaskDoneOn(task, today);
       const stillValid =
         !done &&
         (n.type === "special_task"
@@ -173,7 +175,7 @@ export function planNotifications(ctx: NotifContext): EngineResult {
   if (enabled) {
     if (s.specialTaskReminders) {
       for (const t of tasks) {
-        if (isTaskDone(t) || t.dueDate !== today) continue;
+        if (isTaskDoneOn(t, today) || t.dueDate !== today) continue;
         const key = notifKey({ taskId: t.id, type: "special_task", date: today });
         if (existingKeys.has(key)) continue;
         creates.push({
@@ -188,7 +190,7 @@ export function planNotifications(ctx: NotifContext): EngineResult {
     }
     if (s.overdueReminders) {
       for (const t of tasks) {
-        if (isTaskDone(t) || !t.dueDate || t.dueDate >= today) continue;
+        if (isTaskDoneOn(t, today) || !t.dueDate || t.dueDate >= today) continue;
         if (t.section === "occasional") continue;
         const key = notifKey({ taskId: t.id, type: "overdue", date: today });
         if (existingKeys.has(key)) continue;
@@ -211,7 +213,7 @@ export function planNotifications(ctx: NotifContext): EngineResult {
     const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
     for (const t of tasks) {
       const schedule = scheduleForTask(t, sections);
-      if (isTaskDone(t) || !schedule || !taskOccursOn(t, today, sections)) continue;
+      if (isTaskDoneOn(t, today) || !schedule || !taskOccursOn(t, today, sections)) continue;
       if (loggedToday.has(t.id)) continue; // already engaged — no nagging
       const start = schedule.startTime ? parseHHMM(schedule.startTime) : null;
       if (start) {

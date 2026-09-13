@@ -12,6 +12,7 @@ import { liveDayRec, pickDayRec, currentStreak } from "@/lib/performance";
 import { dateKey } from "@/lib/date";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { useAndroidBackButton } from "@/lib/modal-stack";
+import { onAppResume } from "@/lib/lifecycle";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -27,6 +28,7 @@ function ShellInner({ children }: { children: ReactNode }) {
   const syncNotifications = useStore((s) => s.syncNotifications);
   const syncNative = useStore((s) => s.syncNativeNotifications);
   const markInteraction = useStore((s) => s.markInteraction);
+  const rolloverIfNewDay = useStore((s) => s.rolloverIfNewDay);
 
   // Intercept Android/iOS back button and browser history pop so that
   // modals (Create Task, Task Detail) close first instead of exiting the app.
@@ -36,27 +38,35 @@ function ShellInner({ children }: { children: ReactNode }) {
     boot();
   }, [boot]);
 
-  // Reconcile the reminder queue while the app is open: every minute and on
-  // return to the tab, notifications flip from scheduled to delivered.
+  // Keep the live day in sync with the real calendar.
+  //
+  // Android keeps the WebView alive across background/foreground, so the daily
+  // rollover cannot depend on a page reload: it runs on boot, on every resume
+  // (visibility or Capacitor resume), and on a short interval that also covers
+  // the app being left open across midnight. It is idempotent, so the extra
+  // calls are cheap no-ops while the date has not changed.
   useEffect(() => {
     if (!ready) return;
+    void rolloverIfNewDay();
+
     const id = window.setInterval(() => {
+      void rolloverIfNewDay();
       void syncNotifications();
       void syncNative();
     }, 60_000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        markInteraction();
-        void syncNotifications();
-        void syncNative();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
+
+    const offResume = onAppResume(() => {
+      markInteraction();
+      void rolloverIfNewDay();
+      void syncNotifications();
+      void syncNative();
+    });
+
     return () => {
       window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
+      offResume();
     };
-  }, [ready, syncNotifications, syncNative, markInteraction]);
+  }, [ready, rolloverIfNewDay, syncNotifications, syncNative, markInteraction]);
 
   return (
     <div className="min-h-dvh">
@@ -85,6 +95,8 @@ function StreakMini() {
   if (ready && now) {
     const key = dateKey(now);
     const live = liveDayRec(tasks, logs, key, sections);
+    // Stored history only — today comes from the live snapshot, so the
+    // streak can never count today twice (see currentStreak's dedupe).
     const recs = history.map((h) => pickDayRec(history, null, h.date));
     streak = currentStreak([...recs, live], key);
   }

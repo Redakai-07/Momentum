@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Star } from "lucide-react";
 import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
+import { isTimedTask, remainingMinutesOf } from "@/lib/duration";
 import { cn } from "@/lib/utils";
 
 /**
@@ -53,9 +54,9 @@ export function SpecialTaskBanner({
             <span className="truncate text-[14px] font-semibold tracking-tight text-foreground">
               {current.title}
             </span>
-            {current.estimatedMinutes > 0 && (
+            {isTimedTask(current) && (
               <span className="shrink-0 font-mono text-[11.5px] tnum text-muted-foreground">
-                {formatMinutes(current.remainingMinutes)}
+                {formatMinutes(remainingMinutesOf(current))}
               </span>
             )}
           </span>

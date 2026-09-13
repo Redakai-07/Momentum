@@ -1,6 +1,8 @@
 import { dateKey, parseKey } from "../date";
 import type { CustomSection, Task, TimeLog } from "../types";
 import { taskOccursOn } from "../schedule";
+import { isTaskDoneOn, remainingOn } from "../task-state";
+import { plannedMinutesOf } from "../duration";
 import type { NotificationSettings } from "./types";
 
 /**
@@ -93,7 +95,9 @@ export function minutesSince(iso: string | null | undefined, now: Date): number 
 }
 
 export function taskOccursToday(task: Task, key: string, sections: CustomSection[] = []): boolean {
-  if (task.status !== "active") return false;
+  // Date-aware: recurring work completed on an earlier day is pending again
+  // today, so a stale completion must never suppress today's reminder.
+  if (isTaskDoneOn(task, key)) return false;
   if (taskOccursOn(task, key, sections)) return true;
   // Due today OR overdue — overdue work stays relevant until done.
   return Boolean(task.dueDate && task.dueDate <= key);
@@ -147,7 +151,10 @@ function rankTask(t: Task, today: string): number {
   if (isDueToday(t, today)) return 1;
   if (isDueSoon(t, today)) return 2;
   if (t.nextAction) return 3;
-  if (t.estimatedMinutes > 0) return 4 - Math.min(1, t.estimatedMinutes / 180) * 0.9; // big tasks first
+  // Bigger time-based tasks come first; completion-based work has no size to
+  // rank on, so it settles at the end without ever being treated as 0 minutes.
+  const planned = plannedMinutesOf(t);
+  if (planned > 0) return 4 - Math.min(1, planned / 180) * 0.9;
   return 5;
 }
 
@@ -181,9 +188,15 @@ export function shouldNotify(ctx: DecisionContext): Decision {
   const loggedToday = logs
     .filter((l) => l.date === key)
     .reduce((s, l) => s + l.minutes, 0);
+  const loggedTodayIds = new Set(
+    logs.filter((l) => l.date === key).map((l) => l.taskId),
+  );
+  // Date-scoped: yesterday's completion does not make today's recurring work
+  // "done", so the engine always reasons about today's remaining effort.
+  const remainingToday = (t: Task) => remainingOn(t, key, loggedTodayIds.has(t.id));
 
   // Everything already done → nothing to remind about.
-  if (activeToday.every((t) => t.remainingMinutes <= 0)) {
+  if (activeToday.every((t) => remainingToday(t) <= 0)) {
     return { shouldNotify: false, reason: "all_done", priority: "low" };
   }
 
@@ -250,7 +263,7 @@ export function shouldNotify(ctx: DecisionContext): Decision {
   }
 
   const hasProgress = loggedToday > 0;
-  const remaining = activeToday.reduce((s, t) => s + Math.max(0, t.remainingMinutes), 0);
+  const remaining = activeToday.reduce((s, t) => s + remainingToday(t), 0);
 
   // If the user already made progress, require a real gap before nudging;
   // if nothing was logged at all, a quieter first nudge is fine after a gap.
@@ -274,7 +287,7 @@ export function shouldNotify(ctx: DecisionContext): Decision {
     };
   }
 
-  if (task.estimatedMinutes >= 90) {
+  if (plannedMinutesOf(task) >= 90) {
     return {
       shouldNotify: true,
       reason: "high_duration",

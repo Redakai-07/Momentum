@@ -21,17 +21,14 @@ import { sectionLabel, scheduleSummary, timeRange } from "@/lib/labels";
 import { scheduleForTask } from "@/lib/schedule";
 import { parseKey } from "@/lib/date";
 import { canAccomplish, isTaskAccomplished, isTaskDone } from "@/lib/task-state";
+import { isTimedTask, plannedMinutesOf, remainingMinutesOf } from "@/lib/duration";
 import { cn } from "@/lib/utils";
 import { TaskFormModal } from "./task-form";
 
 function TimeSummary({ task }: { task: Task }) {
-  const pct =
-    task.estimatedMinutes > 0
-      ? Math.max(
-          0,
-          Math.min(100, ((task.estimatedMinutes - task.remainingMinutes) / task.estimatedMinutes) * 100),
-        )
-      : 0;
+  const planned = plannedMinutesOf(task);
+  const remaining = remainingMinutesOf(task);
+  const pct = planned > 0 ? Math.max(0, Math.min(100, ((planned - remaining) / planned) * 100)) : 0;
   return (
     <div className="rounded-xl border border-border/70 bg-muted/25 p-3.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -39,10 +36,8 @@ function TimeSummary({ task }: { task: Task }) {
           Time
         </p>
         <p className="tnum text-[13px] text-muted-foreground">
-          <span className="font-semibold text-foreground">
-            {formatMinutes(task.remainingMinutes)}
-          </span>{" "}
-          remaining of {formatMinutes(task.estimatedMinutes)} estimated
+          <span className="font-semibold text-foreground">{formatMinutes(remaining)}</span>{" "}
+          remaining of {formatMinutes(planned)} estimated
         </p>
       </div>
       <div className="mt-2.5 h-0.75 overflow-hidden rounded-full bg-muted">
@@ -158,9 +153,13 @@ function MetaLine({ task }: { task: Task }) {
         {label.title}
       </Chip>
       {task.status === "accomplished" && <Chip tone="success">accomplished</Chip>}
-      {task.estimatedMinutes > 0 && (
+      {isTimedTask(task) ? (
         <Chip tone="neutral" className="text-foreground/75">
-          {formatMinutes(task.estimatedMinutes)}
+          {formatMinutes(plannedMinutesOf(task))}
+        </Chip>
+      ) : (
+        <Chip tone="neutral" className="text-muted-foreground">
+          no duration
         </Chip>
       )}
       {task.priority === "high" && <Chip tone="signal">high priority</Chip>}
@@ -257,9 +256,9 @@ export function TaskDetailModal({
 
         <MetaLine task={task} />
         <div className="space-y-3">
-          {!accomplished && task.estimatedMinutes > 0 && <TimeSummary task={task} />}
+          {!accomplished && isTimedTask(task) && <TimeSummary task={task} />}
           <NextActionBlock task={task} />
-          {!accomplished && task.estimatedMinutes > 0 && <TimeLogControl task={task} />}
+          {!accomplished && isTimedTask(task) && <TimeLogControl task={task} />}
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-4">
@@ -339,10 +338,10 @@ export function TaskDetailModal({
                 size="sm"
                 variant="primary"
                 onClick={() => toggleTask(task.id, !done)}
-                className={cn(task.estimatedMinutes > 0 && "font-medium")}
+                className={cn(isTimedTask(task) && "font-medium")}
               >
                 <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-                {done ? "Reopen" : task.estimatedMinutes > 0 ? "Complete" : "Mark done"}
+                {done ? "Reopen" : isTimedTask(task) ? "Complete" : "Mark done"}
               </Button>
             )}
           </div>

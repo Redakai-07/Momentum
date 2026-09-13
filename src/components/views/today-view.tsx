@@ -228,14 +228,16 @@ export function TodayView() {
                 />
               )}
 
-              <RemindersStrip />
-
-              <div className="px-0.5">
-                <WorkloadBar
-                  planned={derived.workload.planned}
-                  remaining={derived.workload.remaining}
-                />
-              </div>
+              <RemindersStrip />              {/* A day of completion-based tasks only has no minutes to chart. */}
+              {derived.workload.planned > 0 && (
+                <div className="px-0.5">
+                  <WorkloadBar
+                    planned={derived.workload.planned}
+                    remaining={derived.workload.remaining}
+                    untimedCount={derived.workload.untimedCount}
+                  />
+                </div>
+              )}
 
               {derived.breakdown.groups.map((g) => (
                 <GroupSection

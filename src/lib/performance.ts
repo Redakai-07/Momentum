@@ -1,6 +1,7 @@
 import { PROFILE, type CustomSection, type DailyPerformance, type DayKind, type Task, type TimeLog } from "./types";
 import { taskOccursOn } from "./schedule";
 import { dateKey, normalizeDateKey, parseKey, startOfWeek } from "./date";
+import { isTimedTask, plannedMinutesOf, remainingMinutesOf } from "./duration";
 
 /** True when at least one time log exists for `taskId` on `date`. */
 function hasLogOn(logs: TimeLog[], taskId: string, date: string): boolean {
@@ -26,19 +27,54 @@ export function isNeutralRec(rec: DayRec): boolean {
   return isRestDay(rec) || rec.kind === "inactive" || rec.kind === "recovery";
 }
 
-/** Day plan/workload for tasks that occur on `key`. */
-export function workloadForTasks(tasks: Task[], key: string, sections: CustomSection[] = []) {
+export interface WorkloadSummary {
+  /** Planned minutes — time-based tasks only. */
+  planned: number;
+  /** Minutes still to do today, across time-based tasks. */
+  remaining: number;
+  /** Minutes already done today, across time-based tasks. */
+  completed: number;
+  /** Every task occurring today (time-based + completion-based). */
+  count: number;
+  /** Tasks that carry a planned duration. */
+  timedCount: number;
+  /** Completion-based tasks (no duration) occurring today. */
+  untimedCount: number;
+}
+
+/**
+ * Day plan/workload for tasks that occur on `key`.
+ *
+ * Completion-based tasks are counted but contribute no minutes: a task with no
+ * duration has no planned time to sum, and inventing one (0 or otherwise)
+ * would misrepresent the day's workload.
+ */
+export function workloadForTasks(
+  tasks: Task[],
+  key: string,
+  sections: CustomSection[] = [],
+): WorkloadSummary {
   const occurring = tasks.filter(
     (t) => taskOccursOn(t, key, sections) && t.status !== "accomplished",
   );
   let planned = 0;
   let remaining = 0;
+  let timedCount = 0;
   for (const t of occurring) {
-    planned += t.estimatedMinutes;
-    remaining += t.status === "active" ? Math.max(0, t.remainingMinutes) : 0;
+    if (!isTimedTask(t)) continue;
+    timedCount += 1;
+    planned += plannedMinutesOf(t);
+    remaining += t.status === "active" ? remainingMinutesOf(t) : 0;
   }
   const completed = Math.max(0, planned - remaining);
-  return { planned, remaining, completed, count: occurring.length };
+  return {
+    planned,
+    remaining,
+    completed,
+    count: occurring.length,
+    timedCount,
+    untimedCount: occurring.length - timedCount,
+  };
 }
 
 /**
@@ -53,16 +89,32 @@ export function liveDayRec(
   sections: CustomSection[] = [],
 ): DayRec {
   let planned = 0;
-  let completed = 0;
+
+  // Only time-based tasks contribute minutes. Completion-based work has no
+  // planned time, so it is excluded from *both* sides of the ratio — otherwise
+  // a completed Reminder would push the day's percentage around while
+  // contributing nothing measurable.
+  const timedIds = new Set<string>();
   for (const t of tasks) {
+    if (!isTimedTask(t)) continue;
+    timedIds.add(t.id);
     if (t.status === "accomplished") continue;
+    // A logged one-off (e.g. a remainder task with no schedule) still counts as
+    // planned work for that day — effort should never be invisible.
     if (!taskOccursOn(t, key, sections) && !hasLogOn(logs, t.id, key)) continue;
-    planned += t.estimatedMinutes;
+    planned += plannedMinutesOf(t);
   }
+
+  let completed = 0;
   for (const l of logs) {
-    if (l.date === key) completed += l.minutes;
+    if (l.date !== key) continue;
+    // Ignore stray logs against durationless tasks so they can never inflate
+    // the numerator of a ratio they do not belong in.
+    if (!timedIds.has(l.taskId)) continue;
+    completed += l.minutes;
   }
   completed = Math.min(completed, planned || completed);
+
   return {
     date: key,
     plannedMinutes: planned,

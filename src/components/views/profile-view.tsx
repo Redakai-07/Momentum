@@ -149,49 +149,134 @@ function PermissionRow() {
   const requestPermission = useStore((s) => s.requestNotificationPermission);
   const refreshPermission = useStore((s) => s.refreshNotificationPermission);
   const testNotification = useStore((s) => s.testNotification);
+  const lastTest = useStore((s) => s.lastTestNotification);
+  const diagnostics = useStore((s) => s.notificationDiagnostics);
+  const requestExactAlarm = useStore((s) => s.requestExactAlarmAccess);
+  const [sending, setSending] = useState(false);
 
   const permissionEnabled = permission === "granted";
+  const isDev = process.env.NODE_ENV !== "production";
+
+  const sendTest = async () => {
+    setSending(true);
+    try {
+      await testNotification();
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <div>
-        <p className="text-[13.5px] font-medium text-foreground">Android/iOS notifications</p>
-        <p className="text-xs text-muted-foreground">
-          {permissionEnabled
-            ? "Permission granted — reminders can be delivered by the system."
-            : "Allow notification permission to receive reminders when Momentum is in the background."}
-        </p>
+    <div className="py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-medium text-foreground">Android/iOS notifications</p>
+          <p className="text-xs text-muted-foreground">
+            {permissionEnabled
+              ? "Permission granted — reminders are delivered by the system, even in the background."
+              : permission === "denied"
+                ? "Blocked. Momentum cannot show reminders until you allow them in Android settings."
+                : "Allow notification permission to receive reminders when Momentum is in the background."}
+          </p>
+        </div>
+        {permissionEnabled ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <span className="rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">
+              On
+            </span>
+            {isDev && (
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => void sendTest()}
+                className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
+              >
+                {sending ? "Scheduling…" : "Send test notification"}
+              </button>
+            )}
+          </div>
+        ) : permission === "denied" ? (
+          <button
+            type="button"
+            onClick={() => void refreshPermission()}
+            className="shrink-0 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+          >
+            Check again
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void requestPermission()}
+            className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Allow
+          </button>
+        )}
       </div>
-      {permissionEnabled ? (
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">On</span>
-          {process.env.NODE_ENV !== "production" && (
-            <button type="button" onClick={() => void testNotification()} className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60">
-              Test notification
+
+      {/* Development-only: the real acceptance test is an Android notification
+          in the shade while Momentum is not in the foreground. */}
+      {isDev && lastTest && (
+        <p
+          role="status"
+          className={cn(
+            "mt-2 rounded-md border px-2.5 py-1.5 text-xs leading-relaxed",
+            lastTest.ok
+              ? "border-success/30 bg-success/5 text-foreground"
+              : "border-destructive/30 bg-destructive/5 text-foreground",
+          )}
+        >
+          {lastTest.message}
+          {lastTest.warning && (
+            <span className="block text-muted-foreground">{lastTest.warning}</span>
+          )}
+          {lastTest.error && (
+            <span className="block text-muted-foreground">{lastTest.error}</span>
+          )}
+        </p>
+      )}
+
+      {isDev && diagnostics && (
+        <div className="mt-3 rounded-lg border border-dashed border-border px-3 py-2.5">
+          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+            Delivery diagnostics (dev)
+          </p>
+          <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tnum">
+            <dt className="text-muted-foreground">Platform</dt>
+            <dd className="text-foreground">{diagnostics.platform}</dd>
+            <dt className="text-muted-foreground">Permission</dt>
+            <dd className="text-foreground">{diagnostics.permission}</dd>
+            <dt className="text-muted-foreground">Channel</dt>
+            <dd className="text-foreground">
+              {diagnostics.channelId} · {diagnostics.channelRegistered ? "registered" : "missing"}
+            </dd>
+            <dt className="text-muted-foreground">Exact alarms</dt>
+            <dd className="text-foreground">
+              {diagnostics.exactAlarm} {diagnostics.exactAlarm === "denied" && "(inexact — still delivered)"}
+            </dd>
+            <dt className="text-muted-foreground">Queued with Android</dt>
+            <dd className="text-foreground">{diagnostics.pendingCount}</dd>
+          </dl>
+          {diagnostics.pending.length > 0 && (
+            <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-muted-foreground">
+              {diagnostics.pending.slice(0, 4).map((p) => (
+                <li key={p.id} className="truncate">
+                  #{p.id} · {p.title}
+                  {p.at ? ` · ${new Date(p.at).toLocaleString()}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {diagnostics.platform === "native" && diagnostics.exactAlarm === "denied" && (
+            <button
+              type="button"
+              onClick={() => void requestExactAlarm()}
+              className="mt-2 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+            >
+              Enable precise timing (optional)
             </button>
           )}
         </div>
-      ) : permission === "denied" ? (
-        <button
-          type="button"
-          onClick={() => void refreshPermission()}
-          className="shrink-0 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
-        >
-          Check again
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => void requestPermission()}
-          className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          Allow
-        </button>
-      )}
-      {process.env.NODE_ENV !== "production" && permission !== "granted" && (
-        <button type="button" onClick={() => void testNotification()} className="shrink-0 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted/60">
-          Test notification
-        </button>
       )}
     </div>
   );
@@ -247,12 +332,19 @@ export function ProfileView() {
   const history = useStore((s) => s.history);
   const notificationSettings = useStore((s) => s.notificationSettings);
   const setNotificationSettings = useStore((s) => s.setNotificationSettings);
+  const refreshNotificationDiagnostics = useStore((s) => s.refreshNotificationDiagnostics);
   const profileName = useStore((s) => s.profileName);
   const { theme, setTheme, accentColor, setAccentColor } = useTheme();
 
   useEffect(() => {
     if (!joined) void getFirstRunDate().then(setJoined);
   }, [joined]);
+
+  // Opening Settings is the moment the notification pipeline actually matters,
+  // so re-read the live native state (permission can change outside the app).
+  useEffect(() => {
+    if (ready && tab === "settings") void refreshNotificationDiagnostics();
+  }, [ready, tab, refreshNotificationDiagnostics]);
 
   const today = useMemo(() => (mounted && now ? dateKey(now) : null), [mounted, now]);
 
@@ -285,7 +377,7 @@ export function ProfileView() {
     const best = Math.max(longestStreak(hist), streak);
 
     return { live, weekRows, weekly, monthly, yearly, streak, best };
-  }, [today, history, tasks, logs, now]);
+  }, [today, history, tasks, logs, sections, now]);
 
   const accomplishments = useMemo(
     () =>

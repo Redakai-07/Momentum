@@ -6,6 +6,7 @@ import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { loggedTodayForTask, useStore } from "@/lib/store";
 import { isTaskDone } from "@/lib/task-state";
+import { isTimedTask, plannedMinutesOf, remainingMinutesOf } from "@/lib/duration";
 import { Button } from "@/components/ui/button";
 
 const QUICK = [
@@ -20,8 +21,11 @@ export function TimeLogControl({ task }: { task: Task }) {
   const [custom, setCustom] = useState("");
 
   const loggedToday = loggedTodayForTask(logs, task.id);
-  const remaining = task.remainingMinutes;
+  const remaining = remainingMinutesOf(task);
   const done = isTaskDone(task);
+
+  // Completion-based work has nothing to log — the task is simply toggled.
+  if (!isTimedTask(task)) return null;
 
   if (done) {
     return (
@@ -29,7 +33,7 @@ export function TimeLogControl({ task }: { task: Task }) {
         <p className="text-[13px] text-muted-foreground">
           Completed — nothing left to log today.{" "}
           <span className="font-mono text-xs tnum">
-            {formatMinutes(task.estimatedMinutes)} planned
+            {formatMinutes(plannedMinutesOf(task))} planned
           </span>
         </p>
       </div>
@@ -56,7 +60,7 @@ export function TimeLogControl({ task }: { task: Task }) {
               {formatMinutes(remaining)}
             </span>
             <span className="text-xs text-muted-foreground">
-              remaining of {formatMinutes(task.estimatedMinutes)}
+              remaining of {formatMinutes(plannedMinutesOf(task))}
             </span>
           </p>
           {loggedToday > 0 && (

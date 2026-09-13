@@ -19,11 +19,16 @@ import {
   nativeAvailable,
   nativeIdForKey,
   ensureChannel,
+  refreshExactAlarmState,
+  requestExactAlarmAccess as openExactAlarmSettings,
+  getNativeDiagnostics,
   sendTestNotification,
   type NativeNotifRecord,
+  type NativeDiagnostics,
+  type TestNotificationResult,
 } from "./notifications/service";
 import type { TaskNotification, NotificationSettings } from "./notifications/types";
-import { canAccomplish, isTaskDone, needsNewDayReset, toAccomplished } from "./task-state";
+import { canAccomplish, isTaskDone, rolloverTasks, toAccomplished } from "./task-state";
 import {
   DEFAULT_PROFILE_NAME,
   type CustomSection,
@@ -32,8 +37,15 @@ import {
   type Schedule,
   type SectionKind,
   type Task,
+  type TaskDuration,
   type TimeLog,
 } from "./types";
+import {
+  completedMinutesOf,
+  isTimedTask,
+  normalizeDuration,
+  plannedMinutesOf,
+} from "./duration";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -43,7 +55,11 @@ export interface TaskInput {
   title: string;
   section: SectionKind;
   customSectionId?: string;
-  estimatedMinutes: number;
+  /**
+   * Planned minutes, or `null` for a completion-based task (Reminder /
+   * Occasional with no meaningful duration).
+   */
+  estimatedMinutes: TaskDuration;
   description?: string;
   nextAction?: string;
   dueDate?: string;
@@ -83,12 +99,21 @@ type State = {
   notificationMeta: NotificationMeta;
   /** Android/iOS permission: "granted" | "denied" | "prompt" | "prompt-with-rationale". */
   notificationPermission: string;
+  /** Development aid: a truthful snapshot of the native notification pipeline. */
+  notificationDiagnostics: NativeDiagnostics | null;
+  /** Result of the most recent "Test notification" tap. */
+  lastTestNotification: TestNotificationResult | null;
   /** Display name shown in the greeting and on the profile (persisted in meta). */
   profileName: string;
 };
 
 type Actions = {
   boot: () => Promise<void>;
+  /**
+   * Reopen recurring work when the local calendar day has advanced.
+   * Idempotent — safe to call on boot, on every resume and on a timer.
+   */
+  rolloverIfNewDay: () => Promise<boolean>;
   addTask: (input: TaskInput) => string;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
@@ -98,7 +123,11 @@ type Actions = {
   addCustomSection: (input: SectionInput) => void;
   updateCustomSection: (id: string, patch: Partial<CustomSection>) => void;
   removeCustomSection: (id: string) => void;
-  testNotification: () => Promise<boolean>;
+  testNotification: () => Promise<TestNotificationResult>;
+  /** Re-read the native notification pipeline snapshot (diagnostics only). */
+  refreshNotificationDiagnostics: () => Promise<void>;
+  /** Open the Android "Alarms & reminders" screen (precision, not required). */
+  requestExactAlarmAccess: () => Promise<void>;
   syncNotifications: () => Promise<void>;
   syncNativeNotifications: () => Promise<void>;
   dismissNotification: (id: string) => void;
@@ -211,6 +240,13 @@ const logError = (where: string) => (err: unknown) => {
 
 const isOrdinaryType = (t: string) =>
   t === "task_start" || t === "task_reminder" || t === "next_task";
+
+/** Fire-time timestamp of a persisted record (tolerates round-tripped values). */
+function recordAtMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string" || typeof value === "number") return new Date(value).getTime();
+  return Number.NaN;
+}
 
 /** Minutes since an ISO timestamp (Infinity when missing). */
 function minutesSince(iso: string | null | undefined, now: Date): number {
@@ -355,27 +391,20 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
     await db.meta.put({ key: "notificationSettings", value: defaultSettings });
   }
 
-  // A new day resets recurring tasks (yesterday's completion/partial is done).
+  // A new local calendar day reopens recurring work: yesterday's completion or
+  // partial progress belongs to yesterday, never to today. Only the live
+  // fields on the task change — time logs and performance rows are untouched.
   const today = todayKey();
   const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
-  const rolloverChanges: Task[] = [];
-  const rolledTasks: Task[] = tasks.map((t) => {
-    if (needsNewDayReset(t, today, loggedToday.has(t.id))) {
-      const n: Task = {
-        ...t,
-        status: "active",
-        completedAt: undefined,
-        remainingMinutes: t.estimatedMinutes,
-      };
-      rolloverChanges.push(n);
-      return n;
-    }
-    return t;
-  });
-  if (rolloverChanges.length > 0) {
-    await db.tasks.bulkPut(rolloverChanges);
-    tasks = rolledTasks;
+  const rolled = rolloverTasks(tasks, loggedToday, today);
+  if (rolled.changed.length > 0) {
+    await db.tasks.bulkPut(rolled.changed);
+    tasks = rolled.tasks;
+    devLog("day rollover on boot", { today, reopened: rolled.changed.length });
   }
+  // Remember which day the live state belongs to, so the runtime rollover can
+  // short-circuit until the calendar actually advances.
+  await writeMetaValue("lastRolloverDate", today);
 
   // Make sure today has a snapshot row.
   if (history.findIndex((h) => h.date === today) === -1) {
@@ -395,8 +424,18 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
 
   const settings = await readSettings();
   const notificationMeta = await readNotificationMeta();
-  const storedPermission = await readMetaValue<string>("notificationPermissionState");
+  let storedPermission = await readMetaValue<string>("notificationPermissionState");
   const storedName = await readMetaValue<string>("profileName");
+
+  // Never trust a cached permission: the user may have revoked notifications
+  // from Android settings since the last launch. Re-check on every boot.
+  if (nativeAvailable()) {
+    const live = await checkPermission();
+    if (live !== storedPermission) {
+      storedPermission = live;
+      await writeMetaValue("notificationPermissionState", live);
+    }
+  }
 
   set({
     ready: true,
@@ -425,7 +464,12 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   // Native delivery listeners + first permission request (only when there is
   // actual content to remind about, so a fresh install stays silent).
   if (nativeAvailable()) {
-    void ensureChannel();
+    // Order matters: Android drops a notification posted to a channel that does
+    // not exist yet, and the exact-alarm setting decides whether each alarm is
+    // scheduled as exact or inexact. Both are resolved before anything fires.
+    await ensureChannel();
+    await refreshExactAlarmState();
+
     onNativeNotification({
       received: (record) => {
         devLog("native notification received", record.key);
@@ -440,7 +484,7 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
 
     // First use: ask once, only when the user actually has content to be
     // reminded about. Never nudge a brand-new empty workspace.
-    const permission = storedPermission ?? (nativeAvailable() ? "prompt" : "granted");
+    const permission = storedPermission ?? "prompt";
     if (permission === "prompt" && tasks.length > 0) {
       const granted = await requestPermission();
       await writeMetaValue("notificationPermissionState", granted);
@@ -448,7 +492,8 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
       devLog("first-use permission", granted);
     }
 
-    void get().syncNativeNotifications();
+    await get().syncNativeNotifications();
+    await get().refreshNotificationDiagnostics();
   }
 }
 
@@ -480,6 +525,8 @@ export const useStore = create<MomentumState>()((set, get) => ({
   notificationSettings: defaultSettings,
   notificationMeta: {},
   notificationPermission: "prompt",
+  notificationDiagnostics: null,
+  lastTestNotification: null,
   profileName: DEFAULT_PROFILE_NAME,
 
   boot: () => {
@@ -503,17 +550,62 @@ export const useStore = create<MomentumState>()((set, get) => ({
     return bootPromise;
   },
 
+  /**
+   * Reopen recurring work when the local calendar day has advanced.
+   *
+   * Android keeps the WebView alive when the app is backgrounded, so a day
+   * change cannot rely on a page reload (or a fragile midnight timer). This
+   * runs on boot, on every return to the foreground and on a short interval.
+   * It is idempotent: the persisted `lastRolloverDate` short-circuits repeat
+   * calls within the same day, and the rollover itself is a pure scan.
+   */
+  rolloverIfNewDay: async () => {
+    const state = get();
+    if (!state.ready) return false;
+
+    const today = todayKey();
+    const last = await readMetaValue<string>("lastRolloverDate");
+    if (last === today) return false;
+    await writeMetaValue("lastRolloverDate", today);
+
+    const loggedToday = new Set(
+      state.logs.filter((l) => l.date === today).map((l) => l.taskId),
+    );
+    const rolled = rolloverTasks(state.tasks, loggedToday, today);
+    const reopened = rolled.changed.length;
+
+    if (reopened > 0) {
+      set({ tasks: rolled.tasks });
+      try {
+        await db.tasks.bulkPut(rolled.changed);
+      } catch (err) {
+        logError("day rollover")(err);
+      }
+    }
+
+    // The calendar day moved, so today's snapshot and the reminder queue must
+    // both be rebuilt against the new date.
+    await syncToday(get, set);
+    await get().syncNotifications();
+    await get().syncNativeNotifications();
+    devLog("day rollover", { today, reopened });
+    return reopened > 0;
+  },
+
   /* ------------------------------ Tasks ------------------------------ */
 
   addTask: (input) => {
     const id = uid();
+    // A missing/zero duration is stored explicitly as `null` — never a fake
+    // 0-minute estimate, so completion-based tasks stay out of time-based math.
+    const planned = normalizeDuration(input.estimatedMinutes);
     const task: Task = {
       id,
       title: input.title.trim(),
       section: input.section,
       customSectionId: input.customSectionId,
-      estimatedMinutes: Math.max(0, Math.round(input.estimatedMinutes)),
-      remainingMinutes: Math.max(0, Math.round(input.estimatedMinutes)),
+      estimatedMinutes: planned,
+      remainingMinutes: planned ?? 0,
       description: input.description?.trim() || undefined,
       nextAction: input.nextAction?.trim() || undefined,
       dueDate: input.dueDate || undefined,
@@ -545,15 +637,16 @@ export const useStore = create<MomentumState>()((set, get) => ({
         if (t.id !== id) return t;
         const next: Task = { ...t, ...patch };
 
-        // Keep the "remaining = estimated − logged" invariant when the
-        // estimate changes on a task that is still in progress.
+        // Keep the "remaining = planned − logged" invariant when the duration
+        // changes on a task that is still in progress. Clearing the duration
+        // (null) collapses remaining to 0; adding one restores it.
         if (
           patch.estimatedMinutes !== undefined &&
           patch.estimatedMinutes !== t.estimatedMinutes &&
           next.status === "active"
         ) {
-          const burned = t.estimatedMinutes - t.remainingMinutes;
-          next.remainingMinutes = Math.max(0, next.estimatedMinutes - burned);
+          const burned = completedMinutesOf(t);
+          next.remainingMinutes = Math.max(0, plannedMinutesOf(next) - burned);
         }
         if (next.status !== "active") next.remainingMinutes = 0;
         return next;
@@ -602,7 +695,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
           ...task,
           status: "active",
           completedAt: undefined,
-          remainingMinutes: task.estimatedMinutes,
+          remainingMinutes: plannedMinutesOf(task),
         };
 
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
@@ -629,6 +722,8 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const state = get();
     const task = state.tasks.find((t) => t.id === taskId);
     if (!task || isTaskDone(task) || minutes <= 0) return;
+    // Completion-based tasks have no minutes to log — they are toggled.
+    if (!isTimedTask(task)) return;
 
     const applied = Math.min(Math.round(minutes), Math.max(0, task.remainingMinutes));
     if (applied <= 0) return;
@@ -796,18 +891,29 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const tracked =
       (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
 
-    // Skip the native round-trip when nothing changed.
+    // Skip the native round-trip when nothing changed. Stored records have
+    // round-tripped through IndexedDB, so compare timestamps defensively.
     const same =
       tracked.length === nextRecords.length &&
-      tracked.every((t, i) => t.key === nextRecords[i].key && t.at.getTime() === nextRecords[i].at.getTime());
+      tracked.every(
+        (t, i) =>
+          t.key === nextRecords[i].key &&
+          recordAtMs(t.at) === nextRecords[i].at.getTime(),
+      );
     if (same) {
       devLog("native schedule unchanged", nextRecords.length);
       return;
     }
 
-    await resyncNative(tracked, nextRecords);
+    const outcome = await resyncNative(tracked, nextRecords);
     await writeMetaValue("scheduledNotificationIds", nextRecords);
-    devLog("native schedule synced", { count: nextRecords.length, keys: nextRecords.map((r) => r.key) });
+    devLog("native schedule synced", {
+      count: nextRecords.length,
+      scheduled: outcome.scheduled,
+      warning: outcome.warning,
+      error: outcome.error,
+      keys: nextRecords.map((r) => r.key),
+    });
   },
 
   dismissNotification: (id) => {
@@ -870,14 +976,47 @@ export const useStore = create<MomentumState>()((set, get) => ({
     if (permission === "granted") {
       await get().syncNativeNotifications();
     }
+    await get().refreshNotificationDiagnostics();
     devLog("permission requested", permission);
     return permission;
   },
 
   testNotification: async () => {
     const permission = await get().requestNotificationPermission();
-    if (permission !== "granted") return false;
-    return sendTestNotification();
+    if (permission !== "granted") {
+      const blocked: TestNotificationResult = {
+        ok: false,
+        reason: "permission",
+        message:
+          "Notifications are blocked for Momentum. Enable them in Android settings → Apps → Momentum → Notifications, then try again.",
+      };
+      set({ lastTestNotification: blocked });
+      return blocked;
+    }
+    const result = await sendTestNotification();
+    set({ lastTestNotification: result });
+    void get().refreshNotificationDiagnostics();
+    return result;
+  },
+
+  /**
+   * Snapshot the native pipeline: permission, channel, exact-alarm access and
+   * what Android actually has queued. Diagnostics only — never a gate.
+   */
+  refreshNotificationDiagnostics: async () => {
+    const diagnostics = await getNativeDiagnostics();
+    set({ notificationDiagnostics: diagnostics });
+    if (diagnostics.permission !== get().notificationPermission) {
+      set({ notificationPermission: diagnostics.permission });
+      await writeMetaValue("notificationPermissionState", diagnostics.permission);
+    }
+  },
+
+  requestExactAlarmAccess: async () => {
+    await openExactAlarmSettings();
+    await get().refreshNotificationDiagnostics();
+    // Precision changed, so the pending alarms are rebuilt with the new mode.
+    await get().syncNativeNotifications();
   },
 
   refreshNotificationPermission: async () => {

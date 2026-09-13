@@ -5,6 +5,7 @@ import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { parseKey } from "@/lib/date";
 import { isTaskDone } from "@/lib/task-state";
+import { isTimedTask, remainingMinutesOf } from "@/lib/duration";
 import { CheckboxBox } from "@/components/ui/checkbox";
 
 /** Short due label, or null when there is no date worth surfacing. */
@@ -56,6 +57,9 @@ export function TaskRow({
   const clickable = Boolean(onOpen);
   const done = isTaskDone(task);
   const hint = !done ? dueHint(task) : null;
+  // Completion-based tasks show no duration line at all — never "0m remaining".
+  const timed = isTimedTask(task);
+  const showMeta = !done && (timed || Boolean(hint));
 
   const row = (
     <div
@@ -109,11 +113,11 @@ export function TaskRow({
           </span>
           {priorityMark(task)}
         </div>
-        {!done && (
+        {showMeta && (
           <p className="mt-0.5 flex items-center gap-2 font-mono text-[11.5px] tnum text-muted-foreground">
-            {task.estimatedMinutes > 0 &&
+            {timed &&
               (rightLabel ??
-                `${formatMinutes(task.remainingMinutes)} remaining`)}
+                `${formatMinutes(remainingMinutesOf(task))} remaining`)}
             {hint && (
               <span
                 className={cn(

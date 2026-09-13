@@ -40,6 +40,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ local notifications (Capacitor Local Notifications). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Exact alarms are intentionally NOT requested: Momentum schedules due
-         notifications only, which never need exact alarm permissions. -->
+    <!-- SCHEDULE_EXACT_ALARM is merged in by the Capacitor Local Notifications
+         plugin. Momentum does NOT depend on it: reminders are scheduled as
+         inexact alarms, which Android always delivers without special access.
+         On Android 12+ the app offers the "Alarms & reminders" screen as an
+         optional upgrade for sharper timing only. -->
 </manifest>
