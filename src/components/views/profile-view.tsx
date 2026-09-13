@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Award,
   Bell,
   BellRing,
   CheckCircle2,
+  ChevronRight,
   Layers,
+  NotebookPen,
   Settings2,
   UserRound,
 } from "lucide-react";
@@ -302,7 +305,7 @@ function PeriodGrid({
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {cells.map((c) => (
-        <div key={c.label} className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
+        <div key={c.label} className="surface rounded-2xl px-4 py-3.5">
           <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             {c.label}
           </p>
@@ -678,6 +681,37 @@ export function ProfileView() {
               </h2>
             </div>
             <CustomSectionManager />
+          </section>
+
+          {/* Optional personal space — kept off Home on purpose. */}
+          <section className="space-y-2">
+            <div className="flex items-center gap-2 px-0.5">
+              <NotebookPen className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">
+                Hobby &amp; Notes
+              </h2>
+            </div>
+            <Link
+              href="/hobbies"
+              className="surface lift flex items-center gap-3.5 rounded-xl px-4 py-3.5"
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-muted/40 text-muted-foreground">
+                <NotebookPen className="h-4.5 w-4.5" strokeWidth={1.6} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] font-medium text-foreground">
+                  Open Hobby &amp; Notes
+                </span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  Interests, ideas and notes. Separate from your daily plan — nothing here
+                  becomes a task.
+                </span>
+              </span>
+              <ChevronRight
+                className="h-4 w-4 shrink-0 text-muted-foreground/50"
+                strokeWidth={2}
+              />
+            </Link>
           </section>
 
           <section className="rounded-xl border border-dashed border-border px-4 py-4">

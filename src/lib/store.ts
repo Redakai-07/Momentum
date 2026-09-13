@@ -33,6 +33,9 @@ import {
   DEFAULT_PROFILE_NAME,
   type CustomSection,
   type DailyPerformance,
+  type Hobby,
+  type HobbyAccent,
+  type Note,
   type Priority,
   type Schedule,
   type SectionKind,
@@ -73,6 +76,20 @@ export interface SectionInput {
   schedule: Schedule;
 }
 
+export interface HobbyInput {
+  name: string;
+  description?: string;
+  icon?: string;
+  accent?: HobbyAccent;
+}
+
+export interface NoteInput {
+  title: string;
+  content: string;
+  /** Optional hobby association — omit for a standalone note. */
+  hobbyId?: string;
+}
+
 export type NotificationSettingsPatch = Partial<NotificationSettings>;
 
 /**
@@ -94,6 +111,9 @@ type State = {
   sections: CustomSection[];
   history: DailyPerformance[];
   notifications: TaskNotification[];
+  /** Optional Hobby & Notes space — never part of the task system. */
+  hobbies: Hobby[];
+  notes: Note[];
   notificationSettings: NotificationSettings;
   /** Notification intelligence timestamps (persisted in meta). */
   notificationMeta: NotificationMeta;
@@ -123,6 +143,15 @@ type Actions = {
   addCustomSection: (input: SectionInput) => void;
   updateCustomSection: (id: string, patch: Partial<CustomSection>) => void;
   removeCustomSection: (id: string) => void;
+
+  /* Hobby & Notes — an optional, local-only personal space. */
+  addHobby: (input: HobbyInput) => string;
+  updateHobby: (id: string, patch: Partial<Hobby>) => void;
+  /** Deletes a hobby and *unfiles* its notes — notes are never destroyed. */
+  removeHobby: (id: string) => void;
+  addNote: (input: NoteInput) => string;
+  updateNote: (id: string, patch: Partial<Note>) => void;
+  removeNote: (id: string) => void;
   testNotification: () => Promise<TestNotificationResult>;
   /** Re-read the native notification pipeline snapshot (diagnostics only). */
   refreshNotificationDiagnostics: () => Promise<void>;
@@ -369,13 +398,16 @@ const devLog = (msg: string, data?: unknown) => {
 let bootPromise: Promise<void> | null = null;
 
 async function doBoot(set: SetFn, get: GetFn): Promise<void> {
-  const [taskRows, logRows, sectionRows, perfRows, notifRows] = await Promise.all([
-    db.tasks.toArray(),
-    db.logs.toArray(),
-    db.sections.toArray(),
-    db.performance.toArray(),
-    db.notifications.toArray(),
-  ]);
+  const [taskRows, logRows, sectionRows, perfRows, notifRows, hobbyRows, noteRows] =
+    await Promise.all([
+      db.tasks.toArray(),
+      db.logs.toArray(),
+      db.sections.toArray(),
+      db.performance.toArray(),
+      db.notifications.toArray(),
+      db.hobbies.toArray(),
+      db.notes.toArray(),
+    ]);
   let tasks = taskRows;
   const logs = logRows;
   const sections = sectionRows;
@@ -444,6 +476,8 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
     sections,
     history: classified,
     notifications: notifRows,
+    hobbies: hobbyRows,
+    notes: noteRows,
     notificationSettings: settings,
     notificationMeta,
     notificationPermission: storedPermission ?? (nativeAvailable() ? "prompt" : "granted"),
@@ -522,6 +556,8 @@ export const useStore = create<MomentumState>()((set, get) => ({
   sections: [],
   history: [],
   notifications: [],
+  hobbies: [],
+  notes: [],
   notificationSettings: defaultSettings,
   notificationMeta: {},
   notificationPermission: "prompt",
@@ -538,13 +574,15 @@ export const useStore = create<MomentumState>()((set, get) => ({
         .catch(async (err) => {
           console.error("Momentum: failed to hydrate local database:", err);
           bootPromise = null;
-          const [tasks, logs, sections, history] = await Promise.all([
+          const [tasks, logs, sections, history, hobbies, notes] = await Promise.all([
             db.tasks.toArray(),
             db.logs.toArray(),
             db.sections.toArray(),
             db.performance.toArray(),
+            db.hobbies.toArray(),
+            db.notes.toArray(),
           ]);
-          set({ ready: true, tasks, logs, sections, history });
+          set({ ready: true, tasks, logs, sections, history, hobbies, notes });
         });
     }
     return bootPromise;
@@ -812,6 +850,96 @@ export const useStore = create<MomentumState>()((set, get) => ({
     if (get().tasks.some((t) => t.customSectionId === id)) return;
     set((s) => ({ sections: s.sections.filter((x) => x.id !== id) }));
     db.sections.delete(id).catch(logError("delete section"));
+  },
+
+  /* --------------------------- Hobby & Notes ------------------------- */
+  // Deliberately isolated from schedules, completion and performance: nothing
+  // here calls syncToday, the rollover or the notification planner.
+
+  addHobby: (input) => {
+    const id = uid();
+    const now = new Date().toISOString();
+    const hobby: Hobby = {
+      id,
+      name: input.name.trim(),
+      description: input.description?.trim() || undefined,
+      icon: input.icon?.trim() || undefined,
+      accent: input.accent,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ hobbies: [hobby, ...s.hobbies] }));
+    db.hobbies.add(hobby).catch(logError("create hobby"));
+    return id;
+  },
+
+  updateHobby: (id, patch) => {
+    const current = get().hobbies.find((h) => h.id === id);
+    if (!current) return;
+    const next: Hobby = {
+      ...current,
+      ...patch,
+      name: patch.name !== undefined ? patch.name.trim() || current.name : current.name,
+      description:
+        patch.description !== undefined ? patch.description.trim() || undefined : current.description,
+      icon: patch.icon !== undefined ? patch.icon.trim() || undefined : current.icon,
+      updatedAt: new Date().toISOString(),
+    };
+    set((s) => ({ hobbies: s.hobbies.map((h) => (h.id === id ? next : h)) }));
+    db.hobbies.put(next).catch(logError("update hobby"));
+  },
+
+  removeHobby: (id) => {
+    const state = get();
+    // Notes outlive their hobby: unfiling keeps every note reachable instead
+    // of silently destroying writing the user never asked to delete.
+    const orphans = state.notes.filter((n) => n.hobbyId === id);
+    set((s) => ({
+      hobbies: s.hobbies.filter((h) => h.id !== id),
+      notes: s.notes.map((n) => (n.hobbyId === id ? { ...n, hobbyId: undefined } : n)),
+    }));
+    db.transaction("rw", [db.hobbies, db.notes], async () => {
+      await db.hobbies.delete(id);
+      for (const note of orphans) {
+        await db.notes.put({ ...note, hobbyId: undefined });
+      }
+    }).catch(logError("delete hobby"));
+  },
+
+  addNote: (input) => {
+    const id = uid();
+    const now = new Date().toISOString();
+    const note: Note = {
+      id,
+      title: input.title.trim() || "Untitled note",
+      content: input.content,
+      hobbyId: input.hobbyId || undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ notes: [note, ...s.notes] }));
+    db.notes.add(note).catch(logError("create note"));
+    return id;
+  },
+
+  updateNote: (id, patch) => {
+    const current = get().notes.find((n) => n.id === id);
+    if (!current) return;
+    const next: Note = {
+      ...current,
+      ...patch,
+      title:
+        patch.title !== undefined ? patch.title.trim() || "Untitled note" : current.title,
+      hobbyId: patch.hobbyId !== undefined ? patch.hobbyId || undefined : current.hobbyId,
+      updatedAt: new Date().toISOString(),
+    };
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? next : n)) }));
+    db.notes.put(next).catch(logError("update note"));
+  },
+
+  removeNote: (id) => {
+    set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }));
+    db.notes.delete(id).catch(logError("delete note"));
   },
 
   /* --------------------------- Notifications ------------------------- */

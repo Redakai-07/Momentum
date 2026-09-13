@@ -2,6 +2,8 @@ import Dexie, { type Table } from "dexie";
 import type {
   CustomSection,
   DailyPerformance,
+  Hobby,
+  Note,
   Task,
   TimeLog,
 } from "./types";
@@ -48,6 +50,12 @@ const LEGACY_DEMO_SECTION_IDS = ["sec-research", "sec-fitness"] as const;
  * v3 — the demo/example dataset from the old development build is removed
  *      (only when the legacy `seeded` flag marks it as demo data). A fresh
  *      installation starts with zero records and is never seeded.
+ * v4 — notification intelligence state (meta backfill only).
+ * v5 — recurrence ownership moves to sections.
+ * v6 — Hobby & Notes: two brand-new tables. Additive only, so no data is
+ *      rewritten — the new stores merge alongside the existing ones and every
+ *      pre-existing row (tasks, logs, performance, sections, notifications,
+ *      meta) is left exactly as it was.
  */
 export class MomentumDB extends Dexie {
   tasks!: Table<Task, string>;
@@ -57,6 +65,10 @@ export class MomentumDB extends Dexie {
   performance!: Table<DailyPerformance, string>;
   meta!: Table<MetaRow, string>;
   notifications!: Table<TaskNotification, string>;
+  /** Interests/categories for the optional Hobby & Notes space. */
+  hobbies!: Table<Hobby, string>;
+  /** Lightweight personal notes, optionally filed under a hobby. */
+  notes!: Table<Note, string>;
 
   constructor() {
     super("momentum");
@@ -209,7 +221,19 @@ export class MomentumDB extends Dexie {
           if (!section.schedule) section.schedule = { type: "daily" };
         });
       });
-  }
+    this.version(6).stores({
+      tasks: "id, section, status, dueDate",
+      logs: "id, taskId, date",
+      sections: "id",
+      performance: "date",
+      meta: "key",
+      notifications: "id, taskId, status",
+      hobbies: "id, updatedAt, name",
+      notes: "id, hobbyId, updatedAt, createdAt",
+    });
+    // No upgrade() callback on purpose: this migration only adds empty tables.
+    // Touching existing tables here would risk user data for no benefit.
+}
 }
 
 export const db = new MomentumDB();

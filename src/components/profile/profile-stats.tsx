@@ -1,6 +1,7 @@
 "use client";
 
 import { Flame, Timer } from "lucide-react";
+import { ProgressRing } from "@/components/ui/progress-ring";
 import type { DayRec } from "@/lib/performance";
 import type { Task, TimeLog } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
@@ -21,7 +22,7 @@ export function StatTile({
   tone?: "default" | "signal";
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
+    <div className="surface rounded-2xl px-4 py-3.5">
       <div className="flex items-center gap-1.5">
         {icon}
         <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -69,31 +70,58 @@ export function StreakTile({
   current: number;
   best: number;
 }) {
+  // The ring shows how close this run is to the all-time best. A first streak
+  // (best === current) reads as 100% — you are literally at your record.
+  const ratio = best > 0 ? Math.min(100, Math.round((current / best) * 100)) : 0;
+  const toBeat = Math.max(0, best - current);
+
   return (
     <div className="grid grid-cols-2 gap-3">
-      <div className="rounded-xl border border-signal/30 bg-signal-soft/50 px-4 py-3.5">
-        <div className="flex items-center gap-1.5">
-          <Flame className="h-3.5 w-3.5 text-signal" fill="currentColor" strokeWidth={0} />
-          <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-signal-foreground/90">
-            Current
-          </p>
+      <div className="relative overflow-hidden rounded-2xl border border-signal/30 bg-signal-soft/50 px-4 py-3.5">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-signal/15 blur-2xl"
+        />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <Flame className="h-3.5 w-3.5 text-signal" fill="currentColor" strokeWidth={0} />
+              <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-signal-foreground/90">
+                Current
+              </p>
+            </div>
+            <p className="mt-1.5 tnum text-[30px] font-semibold leading-none tracking-tight text-signal-foreground">
+              {current}
+            </p>
+            <p className="mt-1.5 text-[11px] leading-snug text-signal-foreground/75">
+              ≥{Math.round(PROFILE.streakThreshold * 100)}% keeps it alive
+            </p>
+          </div>
+          <ProgressRing
+            value={best > 0 ? ratio : null}
+            size={46}
+            stroke={5}
+            className="anim-ring-in mt-0.5"
+            trackClassName="stroke-signal-foreground/20"
+            label={`${current} of best ${best} days`}
+          >
+            <span className="tnum text-[10.5px] font-semibold text-signal-foreground">
+              {best > 0 ? `${ratio}%` : "—"}
+            </span>
+          </ProgressRing>
         </div>
-        <p className="mt-1.5 tnum text-[26px] font-semibold leading-none tracking-tight text-signal-foreground">
-          {current}
-        </p>
-        <p className="mt-1.5 text-[11px] text-signal-foreground/75">
-          ≥{Math.round(PROFILE.streakThreshold * 100)}% keeps it alive
-        </p>
       </div>
-      <div className="rounded-xl border border-border bg-card/60 px-4 py-3.5">
+      <div className="rounded-2xl border border-border bg-card/60 px-4 py-3.5">
         <p className="font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
           Best
         </p>
-        <p className="mt-1.5 tnum text-[26px] font-semibold leading-none tracking-tight text-foreground">
+        <p className="mt-1.5 tnum text-[30px] font-semibold leading-none tracking-tight text-foreground">
           {best}
         </p>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          {best >= current && best > 0 ? `${best - current} day${best - current === 1 ? "" : "s"} to beat` : "all-time record"}
+        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+          {toBeat > 0
+            ? `${toBeat} day${toBeat === 1 ? "" : "s"} to beat`
+            : "all-time record"}
         </p>
       </div>
     </div>

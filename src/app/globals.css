@@ -91,6 +91,30 @@
 [data-accent="red"] { --primary: 4 65% 43%; --ring: 4 68% 45%; --accent: 4 48% 94%; --accent-foreground: 4 52% 25%; }
 [data-accent="pink"] { --primary: 333 58% 45%; --ring: 333 60% 48%; --accent: 333 42% 94%; --accent-foreground: 333 48% 26%; }
 
+/* Hobby accents.
+   Hobbies are the one place that gets a richer palette, so each accent needs
+   its own light/dark pair: a hue that reads well as a soft card wash in light
+   mode turns muddy on a dark surface, and vice versa. Cards opt in with
+   `data-hobby-accent` and consume --hobby / --hobby-soft / --hobby-ink, so no
+   component has to know which theme is active. */
+[data-hobby-accent="teal"] { --hobby: 174 60% 33%; --hobby-soft: 174 52% 94%; --hobby-ink: 174 55% 22%; }
+[data-hobby-accent="blue"] { --hobby: 214 68% 45%; --hobby-soft: 214 62% 95%; --hobby-ink: 214 58% 30%; }
+[data-hobby-accent="purple"] { --hobby: 270 52% 48%; --hobby-soft: 270 52% 96%; --hobby-ink: 270 48% 32%; }
+[data-hobby-accent="green"] { --hobby: 148 48% 34%; --hobby-soft: 148 42% 94%; --hobby-ink: 148 46% 22%; }
+[data-hobby-accent="orange"] { --hobby: 26 72% 45%; --hobby-soft: 30 76% 94%; --hobby-ink: 26 62% 28%; }
+[data-hobby-accent="red"] { --hobby: 4 62% 46%; --hobby-soft: 4 62% 96%; --hobby-ink: 4 56% 30%; }
+[data-hobby-accent="pink"] { --hobby: 333 56% 48%; --hobby-soft: 333 58% 96%; --hobby-ink: 333 50% 32%; }
+[data-hobby-accent="sand"] { --hobby: 34 42% 40%; --hobby-soft: 38 48% 93%; --hobby-ink: 32 45% 26%; }
+
+.dark[data-hobby-accent="teal"] { --hobby: 174 62% 60%; --hobby-soft: 174 34% 17%; --hobby-ink: 174 62% 84%; }
+.dark[data-hobby-accent="blue"] { --hobby: 214 76% 68%; --hobby-soft: 214 34% 19%; --hobby-ink: 214 76% 88%; }
+.dark[data-hobby-accent="purple"] { --hobby: 270 70% 74%; --hobby-soft: 270 30% 20%; --hobby-ink: 270 72% 89%; }
+.dark[data-hobby-accent="green"] { --hobby: 148 58% 60%; --hobby-soft: 148 26% 16%; --hobby-ink: 148 60% 84%; }
+.dark[data-hobby-accent="orange"] { --hobby: 28 84% 65%; --hobby-soft: 28 34% 18%; --hobby-ink: 28 84% 87%; }
+.dark[data-hobby-accent="red"] { --hobby: 4 78% 68%; --hobby-soft: 4 30% 19%; --hobby-ink: 4 82% 89%; }
+.dark[data-hobby-accent="pink"] { --hobby: 333 72% 70%; --hobby-soft: 333 30% 20%; --hobby-ink: 333 76% 90%; }
+.dark[data-hobby-accent="sand"] { --hobby: 38 60% 66%; --hobby-soft: 34 22% 18%; --hobby-ink: 38 62% 86%; }
+
 .dark[data-accent="blue"] { --primary: 214 78% 66%; --ring: 214 78% 68%; --accent: 214 42% 20%; --accent-foreground: 214 72% 88%; }
 .dark[data-accent="purple"] { --primary: 270 72% 72%; --ring: 270 75% 74%; --accent: 270 38% 21%; --accent-foreground: 270 72% 90%; }
 .dark[data-accent="green"] { --primary: 145 62% 55%; --ring: 145 65% 58%; --accent: 145 35% 19%; --accent-foreground: 145 65% 86%; }
@@ -129,11 +153,17 @@
 
   --shadow-soft: 0 1px 2px rgb(24 18 8 / 0.05), 0 10px 30px -18px rgb(24 18 8 / 0.18);
   --shadow-lift: 0 1px 2px rgb(24 18 8 / 0.05), 0 24px 60px -24px rgb(24 18 8 / 0.35);
+  /* Middle tier: cards that should read as raised without floating away. */
+  --shadow-elevate: 0 1px 2px rgb(24 18 8 / 0.06), 0 16px 34px -20px rgb(24 18 8 / 0.28);
+  /* Hairline highlight along the top edge — the "lit from above" cue. */
+  --highlight: rgb(255 255 255 / 0.7);
 }
 
 .dark {
   --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 14px 34px -18px rgb(0 0 0 / 0.5);
   --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.4), 0 30px 70px -24px rgb(0 0 0 / 0.7);
+  --shadow-elevate: 0 1px 2px rgb(0 0 0 / 0.45), 0 18px 40px -20px rgb(0 0 0 / 0.6);
+  --highlight: rgb(255 255 255 / 0.06);
 }
 
 /* ------------------------------------------------------------------ */
@@ -149,6 +179,23 @@
     height: 100%;
     width: 100%;
     -webkit-text-size-adjust: 100%;
+  }
+
+  /* Ambient wash.
+     A fixed, purely decorative layer that lifts the app off flat colour.
+     It is fixed (never repaints on scroll) and lives at z-index -1, so it
+     sits behind in-flow content without adding a wrapper element or
+     disturbing any layout. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(52rem 30rem at 6% -14%, hsl(var(--primary) / 0.13), transparent 60%),
+      radial-gradient(42rem 26rem at 98% 0%, hsl(var(--signal) / 0.08), transparent 62%),
+      radial-gradient(50rem 28rem at 50% 112%, hsl(var(--primary) / 0.07), transparent 62%);
   }
 
   body {
@@ -212,6 +259,54 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Surfaces                                                            */
+/* ------------------------------------------------------------------ */
+
+/* The standard raised panel. The inset highlight is used instead of a
+   top-edge gradient overlay so it can never tint the content on top of it. */
+.surface {
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-soft);
+}
+
+/* Interactive card: rises on hover (pointer devices only) and compresses
+   slightly on press, so every tappable surface feels physical. */
+.lift {
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.8, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.2, 0.8, 0.3, 1),
+    border-color 220ms ease;
+  will-change: transform;
+}
+
+@media (hover: hover) {
+  .lift:hover {
+    transform: translateY(-2px);
+    box-shadow: inset 0 1px 0 var(--highlight), var(--shadow-elevate);
+  }
+}
+
+.lift:active {
+  transform: translateY(0) scale(0.995);
+}
+
+/* Press-only feedback for rows and buttons that should not move on hover. */
+.press {
+  transition: transform 130ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.press:active {
+  transform: scale(0.975);
+}
+
+/* Long-form reading surface (notes). */
+.prose-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
 /* Number alignment everywhere time/percentages appear */
 .tnum {
   font-variant-numeric: tabular-nums;
@@ -273,10 +368,50 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* A checkbox ticking on: overshoots slightly, then settles. */
+@keyframes fb-check {
+  0% { transform: scale(0.45); opacity: 0; }
+  55% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Sweeping sheen for loading placeholders. */
+@keyframes fb-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Reveal a filled progress bar without distorting its rounded ends. */
+@keyframes fb-fill {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes fb-ring-in {
+  from { opacity: 0; transform: scale(0.88); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .anim-fade-in { animation: fb-fade-in 0.22s ease both; }
 .anim-rise-in { animation: fb-rise-in 0.28s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
 .anim-pop-in { animation: fb-pop-in 0.24s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
 .anim-fade-up { animation: fb-fade-up 0.3s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
+.anim-check { animation: fb-check 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+.anim-fill { animation: fb-fill 0.75s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.anim-ring-in { animation: fb-ring-in 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, hsl(var(--foreground) / 0.07), transparent);
+  animation: fb-shimmer 1.5s ease-in-out infinite;
+}
 
 /* Stagger helper for lists */
 .stagger > * { animation: fb-rise-in 0.3s cubic-bezier(0.21, 0.6, 0.35, 1) both; }
@@ -288,6 +423,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .stagger > *:nth-child(6) { animation-delay: 0.17s; }
 .stagger > *:nth-child(7) { animation-delay: 0.2s; }
 .stagger > *:nth-child(8) { animation-delay: 0.23s; }
+.stagger > *:nth-child(9) { animation-delay: 0.26s; }
+.stagger > *:nth-child(n+10) { animation-delay: 0.29s; }
 
 @media (prefers-reduced-motion: reduce) {
   *,

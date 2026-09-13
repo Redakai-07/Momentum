@@ -34,7 +34,7 @@ export function SpecialTaskBanner({
   const current = tasks[Math.min(index, tasks.length - 1)];
 
   return (
-    <div className="rounded-xl border border-signal/25 bg-signal-soft/45">
+    <div className="anim-rise-in overflow-hidden rounded-2xl border border-signal/25 bg-signal-soft/45 shadow-soft">
       <button
         key={current.id}
         type="button"

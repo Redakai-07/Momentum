@@ -111,6 +111,62 @@ export interface CustomSection {
   createdAt: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Hobby & Notes — a separate, optional space                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Accent hues available to a hobby card.
+ *
+ * Deliberately a small, curated set rather than a free colour picker: each one
+ * has hand-tuned light/dark variants in globals.css so hobby cards always keep
+ * readable contrast, whatever theme the user picked.
+ */
+export type HobbyAccent =
+  | "teal"
+  | "blue"
+  | "purple"
+  | "green"
+  | "orange"
+  | "red"
+  | "pink"
+  | "sand";
+
+/**
+ * An interest or personal area — a category, not a task.
+ *
+ * Hobbies deliberately carry no schedule, due date, completion or streak:
+ * they exist to group notes and give the personal side of Momentum a home.
+ */
+export interface Hobby {
+  id: string;
+  name: string;
+  description?: string;
+  /** Emoji or short glyph shown on the hobby card. */
+  icon?: string;
+  /** Optional visual identity for the card. */
+  accent?: HobbyAccent;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A lightweight personal note.
+ *
+ * Notes are intentionally plain: a title, free text, and an optional hobby to
+ * belong to. They never enter the task, scheduling, performance or streak
+ * systems.
+ */
+export interface Note {
+  id: string;
+  /** Optional hobby association — notes may also stand alone. */
+  hobbyId?: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * Personal settings that are not user-configurable.
  * `streakThreshold` is the percentage required on a day for the streak to

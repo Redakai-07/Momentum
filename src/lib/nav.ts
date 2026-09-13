@@ -2,6 +2,7 @@ import {
   CalendarDays,
   Home,
   ListChecks,
+  NotebookPen,
   Sparkles,
   UserRound,
   type LucideIcon,
@@ -40,7 +41,9 @@ export const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-/** Secondary lists — reachable from Home, not from the bottom bar. */
+/** Secondary lists — reachable from Home and the desktop sidebar, not from
+ *  the mobile bottom bar. Hobby & Notes deliberately lives here (and under
+ *  Profile) so it never crowds the productivity dashboard. */
 export const LIST_LINKS: NavItem[] = [
   {
     href: "/remainder",
@@ -53,5 +56,11 @@ export const LIST_LINKS: NavItem[] = [
     label: "Occasional",
     icon: Sparkles,
     match: (p) => p.startsWith("/occasional"),
+  },
+  {
+    href: "/hobbies",
+    label: "Hobby & Notes",
+    icon: NotebookPen,
+    match: (p) => p.startsWith("/hobbies"),
   },
 ];

@@ -5,7 +5,12 @@ import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { parseKey } from "@/lib/date";
 import { isTaskDone } from "@/lib/task-state";
-import { isTimedTask, remainingMinutesOf } from "@/lib/duration";
+import {
+  completedMinutesOf,
+  isTimedTask,
+  remainingMinutesOf,
+  taskProgress,
+} from "@/lib/duration";
 import { CheckboxBox } from "@/components/ui/checkbox";
 
 /** Short due label, or null when there is no date worth surfacing. */
@@ -61,7 +66,13 @@ export function TaskRow({
   const timed = isTimedTask(task);
   const showMeta = !done && (timed || Boolean(hint));
 
-  const row = (
+  // Progress is only meaningful for timed work that is part-way through.
+  const timed_ = timed && !done;
+  const progress = timed_ ? taskProgress(task) : null;
+  const started = timed_ && completedMinutesOf(task) > 0;
+  const completed = timed_ ? completedMinutesOf(task) : 0;
+
+  return (
     <div
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
@@ -78,9 +89,13 @@ export function TaskRow({
           : undefined
       }
       className={cn(
-        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors duration-150",
+        "group relative flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left",
+        "transition-colors duration-150",
         clickable &&
-          "cursor-pointer hover:bg-muted/45 focus-visible:outline-none focus-visible:bg-muted/45",
+          "cursor-pointer hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none",
+        // A quiet left accent once there is logged time, so in-progress work
+        // stands out from untouched rows without adding noise.
+        started && "before:absolute before:inset-y-2.5 before:left-0 before:w-[2px] before:rounded-full before:bg-primary/50",
       )}
     >
       {onToggle && (
@@ -93,7 +108,7 @@ export function TaskRow({
             e.stopPropagation();
             onToggle(task);
           }}
-          className="-ml-0.5 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="group/check -ml-0.5 shrink-0 rounded p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
         >
           <CheckboxBox checked={done} />
         </button>
@@ -103,7 +118,7 @@ export function TaskRow({
         <div className="flex items-center gap-x-2 gap-y-0.5">
           <span
             className={cn(
-              "break-words text-[14.5px] font-medium tracking-tight transition-colors",
+              "break-words text-[14.5px] font-medium tracking-tight transition-colors duration-200",
               done
                 ? "text-muted-foreground/70 line-through decoration-muted-foreground/50"
                 : "text-foreground",
@@ -113,11 +128,10 @@ export function TaskRow({
           </span>
           {priorityMark(task)}
         </div>
+
         {showMeta && (
-          <p className="mt-0.5 flex items-center gap-2 font-mono text-[11.5px] tnum text-muted-foreground">
-            {timed &&
-              (rightLabel ??
-                `${formatMinutes(remainingMinutesOf(task))} remaining`)}
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11.5px] tnum text-muted-foreground">
+            {timed && (rightLabel ?? `${formatMinutes(remainingMinutesOf(task))} remaining`)}
             {hint && (
               <span
                 className={cn(
@@ -130,9 +144,35 @@ export function TaskRow({
             )}
           </p>
         )}
+
+        {/* Time progress — replaces the abstract minutes with something the eye
+            can read instantly. Only shown once work has actually started. */}
+        {timed_ && started && progress !== null && (
+          <div className="mt-2 flex items-center gap-2">
+            <div
+              className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label={`${task.title} time progress`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+            >
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-700 ease-out",
+                  progress >= 100 ? "bg-success" : "bg-primary/80",
+                )}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="shrink-0 font-mono text-[10.5px] tnum text-muted-foreground/90">
+              {formatMinutes(completed)}/{formatMinutes(
+                completed + remainingMinutesOf(task),
+              )}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
-
-  return row;
 }
