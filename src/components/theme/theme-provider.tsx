@@ -161,8 +161,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       apply("system");
       setEffective(mq.matches ? "dark" : "light");
     };
+    const onAndroidConfigurationChange = () => onChange();
     mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
+    window.addEventListener("momentum-system-theme-change", onAndroidConfigurationChange);
+    return () => {
+      mq.removeEventListener("change", onChange);
+      window.removeEventListener("momentum-system-theme-change", onAndroidConfigurationChange);
+    };
   }, [theme]);
 
   const value = useMemo<ThemeCtx>(

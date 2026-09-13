@@ -72,7 +72,7 @@ function ShellInner({ children }: { children: ReactNode }) {
     <div className="min-h-dvh">
       <DesktopSidebar />
       <div className="flex min-h-dvh flex-col lg:pl-[228px]">
-        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-[max(env(safe-area-inset-top),1.5rem)] sm:px-8 sm:pt-[max(env(safe-area-inset-top),2rem)] lg:px-10 lg:pb-16 lg:pt-[max(env(safe-area-inset-top),2.5rem)]">
+        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-[max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px),1.5rem)] sm:px-8 sm:pt-[max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px),2rem)] lg:px-10 lg:pb-16 lg:pt-[max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px),2.5rem)]">
           {children}
         </main>
         <MobileNav />
@@ -210,7 +210,7 @@ function MobileNav() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/88 pb-[max(env(safe-area-inset-bottom),6px)] backdrop-blur-lg lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 bg-background pb-[max(env(safe-area-inset-bottom),var(--momentum-safe-area-inset-bottom,0px),6px)] lg:hidden"
     >
       <div className="grid grid-cols-4">
         {NAV_ITEMS.map((item) => {

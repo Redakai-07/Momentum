@@ -179,6 +179,7 @@
     height: 100%;
     width: 100%;
     -webkit-text-size-adjust: 100%;
+    background: hsl(var(--background));
   }
 
   body {
@@ -192,6 +193,11 @@
     overscroll-behavior-y: none;
     width: 100%;
     min-width: 0;
+  }
+
+  #__next {
+    min-height: 100%;
+    background: hsl(var(--background));
   }
 
   body > * {
