@@ -2,8 +2,10 @@
 
 import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Flame } from "lucide-react";
+import logo from "@/app/momentum.png";
 import { NAV_ITEMS, LIST_LINKS } from "@/lib/nav";
 import { useStore } from "@/lib/store";
 import { useNow } from "@/lib/hooks";
@@ -122,9 +124,14 @@ function DesktopSidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[228px] flex-col border-r border-border bg-sidebar lg:flex">
       <div className="flex items-center gap-2.5 px-5 pt-7">
-        <span className="grid h-[22px] w-[22px] place-items-center rounded-md border border-foreground/12 bg-card shadow-soft">
-          <span className="h-[8px] w-[8px] rounded-full bg-primary" />
-        </span>
+        <Image
+          src={logo}
+          alt="Momentum"
+          width={28}
+          height={28}
+          unoptimized
+          className="h-7 w-7 rounded-lg object-cover shadow-soft"
+        />
         <span className="text-[15px] font-semibold tracking-tight text-foreground">
           Momentum
         </span>
@@ -212,7 +219,7 @@ function MobileNav() {
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-30 bg-background pb-[max(env(safe-area-inset-bottom),var(--momentum-safe-area-inset-bottom,0px),6px)] lg:hidden"
     >
-      <div className="grid grid-cols-4">
+      <div className="grid translate-y-1 grid-cols-4">
         {NAV_ITEMS.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;
