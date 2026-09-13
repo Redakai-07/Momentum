@@ -33,7 +33,6 @@ export function CalendarView() {
   const now = useNow();
   const tasks = useStore((s) => s.tasks);
   const sections = useStore((s) => s.sections);
-  const toggleTask = useStore((s) => s.toggleTask);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const today = mounted && now ? now : null;
@@ -246,7 +245,7 @@ export function CalendarView() {
                     key={t.id}
                     task={t}
                     onOpen={(x) => setSelectedId(x.id)}
-                    onToggle={(x) => toggleTask(x.id)}
+                    scheduledOnly
                   />
                 ))}
               </ListShell>
@@ -255,7 +254,13 @@ export function CalendarView() {
         </div>
       )}
 
-      <TaskDetailModal taskId={selectedId} onClose={() => setSelectedId(null)} />
+      <TaskDetailModal
+        taskId={selectedId}
+        onClose={() => setSelectedId(null)}
+        showCompleteAction={false}
+        showAccomplishAction={false}
+        showTimeLogControl={false}
+      />
     </PageFrame>
   );
 }

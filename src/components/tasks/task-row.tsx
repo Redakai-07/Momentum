@@ -8,6 +8,7 @@ import { isTaskDone } from "@/lib/task-state";
 import {
   completedMinutesOf,
   isTimedTask,
+  plannedMinutesOf,
   remainingMinutesOf,
   taskProgress,
 } from "@/lib/duration";
@@ -52,22 +53,25 @@ export function TaskRow({
   onOpen,
   onToggle,
   rightLabel,
+  scheduledOnly = false,
 }: {
   task: Task;
   onOpen?: (t: Task) => void;
   onToggle?: (t: Task) => void;
   /** Overrides the default remaining-minutes label (e.g. "1h" planned). */
   rightLabel?: string;
+  /** Show the assignment and planned duration without live completion state. */
+  scheduledOnly?: boolean;
 }) {
   const clickable = Boolean(onOpen);
-  const done = isTaskDone(task);
-  const hint = !done ? dueHint(task) : null;
+  const done = !scheduledOnly && isTaskDone(task);
+  const hint = scheduledOnly || done ? null : dueHint(task);
   // Completion-based tasks show no duration line at all — never "0m remaining".
   const timed = isTimedTask(task);
-  const showMeta = !done && (timed || Boolean(hint));
+  const showMeta = (scheduledOnly || !done) && (timed || Boolean(hint));
 
   // Progress is only meaningful for timed work that is part-way through.
-  const timed_ = timed && !done;
+  const timed_ = timed && !done && !scheduledOnly;
   const progress = timed_ ? taskProgress(task) : null;
   const started = timed_ && completedMinutesOf(task) > 0;
   const completed = timed_ ? completedMinutesOf(task) : 0;
@@ -98,7 +102,7 @@ export function TaskRow({
         started && "before:absolute before:inset-y-2.5 before:left-0 before:w-[2px] before:rounded-full before:bg-primary/50",
       )}
     >
-      {onToggle && (
+      {onToggle && !scheduledOnly && (
         <button
           type="button"
           role="checkbox"
@@ -131,7 +135,11 @@ export function TaskRow({
 
         {showMeta && (
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11.5px] tnum text-muted-foreground">
-            {timed && (rightLabel ?? `${formatMinutes(remainingMinutesOf(task))} remaining`)}
+            {timed &&
+              (rightLabel ??
+                (scheduledOnly
+                  ? `${formatMinutes(plannedMinutesOf(task))} planned`
+                  : `${formatMinutes(remainingMinutesOf(task))} remaining`))}
             {hint && (
               <span
                 className={cn(

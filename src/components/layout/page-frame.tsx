@@ -14,7 +14,7 @@ export function PageFrame({
     <div
       className={cn(
         "mx-auto w-full",
-        wide ? "max-w-[1020px]" : "max-w-[660px]",
+        wide ? "max-w-[1020px] lg:max-w-[1180px]" : "max-w-[660px] lg:max-w-[760px]",
         className,
       )}
     >

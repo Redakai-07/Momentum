@@ -194,9 +194,15 @@ function todayLocalKey() {
 export function TaskDetailModal({
   taskId,
   onClose,
+  showCompleteAction = true,
+  showAccomplishAction = true,
+  showTimeLogControl = true,
 }: {
   taskId: string | null;
   onClose: () => void;
+  showCompleteAction?: boolean;
+  showAccomplishAction?: boolean;
+  showTimeLogControl?: boolean;
 }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
   const markInteraction = useStore((s) => s.markInteraction);
@@ -222,7 +228,7 @@ export function TaskDetailModal({
   const label = sectionLabel(task, sections);
   const done = isTaskDone(task);
   const accomplished = task.status === "accomplished";
-  const allowAccomplish = canAccomplish(task);
+  const allowAccomplish = showAccomplishAction && canAccomplish(task);
 
   const accomplishedDate = accomplished
     ? task.accomplishedAt
@@ -258,7 +264,9 @@ export function TaskDetailModal({
         <div className="space-y-3">
           {!accomplished && isTimedTask(task) && <TimeSummary task={task} />}
           <NextActionBlock task={task} />
-          {!accomplished && isTimedTask(task) && <TimeLogControl task={task} />}
+          {!accomplished && showTimeLogControl && isTimedTask(task) && (
+            <TimeLogControl task={task} />
+          )}
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-4">
@@ -329,7 +337,7 @@ export function TaskDetailModal({
             >
               <Pencil className="h-3.5 w-3.5" /> Edit
             </Button>
-            {accomplished ? (
+            {accomplished || !showCompleteAction ? (
               <Button size="sm" variant="soft" onClick={onClose}>
                 Close
               </Button>
