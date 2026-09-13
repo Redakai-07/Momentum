@@ -222,7 +222,7 @@ function MobileNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-[52px] flex-col items-center justify-center gap-1 py-1.5",
+                "flex min-h-12 flex-col items-center justify-center gap-0.5 py-1",
                 active ? "text-foreground" : "text-muted-foreground/80",
               )}
             >
