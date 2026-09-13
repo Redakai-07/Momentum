@@ -5,6 +5,25 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+let bodyScrollLocks = 0;
+let previousBodyOverflow = "";
+
+function lockBodyScroll() {
+  if (bodyScrollLocks === 0) {
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  bodyScrollLocks += 1;
+}
+
+function unlockBodyScroll() {
+  bodyScrollLocks = Math.max(0, bodyScrollLocks - 1);
+  if (bodyScrollLocks === 0) {
+    document.body.style.overflow = previousBodyOverflow;
+    previousBodyOverflow = "";
+  }
+}
+
 export function Modal({
   open,
   onClose,
@@ -26,15 +45,18 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return;
+    lockBodyScroll();
+    return unlockBodyScroll;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
     };
   }, [open, onClose]);
 
