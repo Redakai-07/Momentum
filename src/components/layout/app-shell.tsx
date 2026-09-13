@@ -72,7 +72,7 @@ function ShellInner({ children }: { children: ReactNode }) {
     <div className="min-h-dvh">
       <DesktopSidebar />
       <div className="flex min-h-dvh flex-col lg:pl-[228px]">
-        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-6 sm:px-8 lg:px-10 lg:pb-16 lg:pt-10">
+        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-[max(env(safe-area-inset-top),1.5rem)] sm:px-8 sm:pt-[max(env(safe-area-inset-top),2rem)] lg:px-10 lg:pb-16 lg:pt-[max(env(safe-area-inset-top),2.5rem)]">
           {children}
         </main>
         <MobileNav />
@@ -212,7 +212,7 @@ function MobileNav() {
       aria-label="Main"
       className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/88 pb-[max(env(safe-area-inset-bottom),6px)] backdrop-blur-lg lg:hidden"
     >
-      <div className="grid grid-cols-3">
+      <div className="grid grid-cols-4">
         {NAV_ITEMS.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;

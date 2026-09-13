@@ -12,6 +12,14 @@ import {
 } from "react";
 import { db } from "@/lib/db";
 
+declare global {
+  interface Window {
+    MomentumSystemUi?: {
+      setDarkMode: (dark: boolean) => void;
+    };
+  }
+}
+
 export type Theme = "light" | "dark" | "system";
 export type AccentColor = "default" | "blue" | "purple" | "green" | "orange" | "red" | "pink" | "teal";
 
@@ -81,7 +89,9 @@ function readStored(): Theme {
 }
 
 function apply(t: Theme) {
-  document.documentElement.classList.toggle("dark", resolve(t));
+  const dark = resolve(t);
+  document.documentElement.classList.toggle("dark", dark);
+  window.MomentumSystemUi?.setDarkMode(dark);
 }
 
 function applyAccent(color: AccentColor) {

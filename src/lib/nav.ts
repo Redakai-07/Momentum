@@ -16,9 +16,9 @@ export interface NavItem {
 }
 
 /**
- * Primary destinations — the mobile bottom navigation. Deliberately small:
- * Daily / Reminder / Occasional live on Home, and custom sections stay
- * under Profile → Settings → My sections.
+ * Primary destinations — shared by the desktop sidebar and mobile bottom
+ * navigation. Daily / Reminder / Occasional live on Home, while hobbies and
+ * notes have their own first-class space.
  */
 export const NAV_ITEMS: NavItem[] = [
   {
@@ -34,6 +34,12 @@ export const NAV_ITEMS: NavItem[] = [
     match: (p) => p.startsWith("/calendar"),
   },
   {
+    href: "/hobbies",
+    label: "Hobby & Notes",
+    icon: NotebookPen,
+    match: (p) => p.startsWith("/hobbies"),
+  },
+  {
     href: "/profile",
     label: "Profile",
     icon: UserRound,
@@ -41,9 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-/** Secondary lists — reachable from Home and the desktop sidebar, not from
- *  the mobile bottom bar. Hobby & Notes deliberately lives here (and under
- *  Profile) so it never crowds the productivity dashboard. */
+/** Secondary lists — reachable from Home and the desktop sidebar. */
 export const LIST_LINKS: NavItem[] = [
   {
     href: "/remainder",
@@ -56,11 +60,5 @@ export const LIST_LINKS: NavItem[] = [
     label: "Occasional",
     icon: Sparkles,
     match: (p) => p.startsWith("/occasional"),
-  },
-  {
-    href: "/hobbies",
-    label: "Hobby & Notes",
-    icon: NotebookPen,
-    match: (p) => p.startsWith("/hobbies"),
   },
 ];

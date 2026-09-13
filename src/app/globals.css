@@ -11,7 +11,7 @@
 :root {
   color-scheme: light;
 
-  --background: 192 22% 96.5%;
+  --background: 0 0% 96.5%;
   --foreground: 198 28% 13%;
 
   --card: 0 0% 100%;
@@ -20,8 +20,8 @@
   --popover: 0 0% 100%;
   --popover-foreground: 198 28% 13%;
 
-  --muted: 190 18% 90%;
-  --muted-foreground: 198 12% 40%;
+  --muted: 0 0% 91%;
+  --muted-foreground: 0 0% 40%;
 
   --accent: 174 38% 91%;
   --accent-foreground: 174 46% 23%;
@@ -38,33 +38,33 @@
 
   --success: 154 55% 32%;
 
-  --border: 190 15% 83%;
-  --input: 190 15% 80%;
+  --border: 0 0% 83%;
+  --input: 0 0% 80%;
   --ring: 174 62% 34%;
 
-  --sidebar: 190 25% 93%;
+  --sidebar: 0 0% 93%;
 }
 
 .dark {
   color-scheme: dark;
 
-  --background: 198 24% 8%;
-  --foreground: 190 20% 92%;
+  --background: 0 0% 4.5%;
+  --foreground: 0 0% 92%;
 
-  --card: 198 22% 11%;
-  --card-foreground: 190 20% 92%;
+  --card: 0 0% 9%;
+  --card-foreground: 0 0% 92%;
 
-  --popover: 198 22% 12%;
-  --popover-foreground: 190 20% 92%;
+  --popover: 0 0% 10.5%;
+  --popover-foreground: 0 0% 92%;
 
-  --muted: 198 18% 17%;
-  --muted-foreground: 190 10% 63%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 64%;
 
   --accent: 174 35% 19%;
   --accent-foreground: 174 45% 84%;
 
   --primary: 174 58% 55%;
-  --primary-foreground: 198 35% 8%;
+  --primary-foreground: 0 0% 8%;
 
   --destructive: 2 70% 58%;
   --destructive-foreground: 0 0% 100%;
@@ -75,21 +75,21 @@
 
   --success: 154 60% 52%;
 
-  --border: 198 16% 22%;
-  --input: 198 16% 25%;
+  --border: 0 0% 22%;
+  --input: 0 0% 25%;
   --ring: 174 58% 58%;
 
-  --sidebar: 198 25% 6.5%;
+  --sidebar: 0 0% 6%;
 }
 
 /* Optional accent presets. The default intentionally matches Momentum's
   current teal palette; each preset overrides only interactive tokens. */
-[data-accent="blue"] { --primary: 214 70% 43%; --background: 214 22% 96.5%; --ring: 214 70% 45%; --accent: 214 38% 93%; --accent-foreground: 214 55% 25%; }
-[data-accent="purple"] { --primary: 270 52% 45%; --background: 270 22% 96.5%; --ring: 270 55% 48%; --accent: 270 35% 94%; --accent-foreground: 270 45% 26%; }
-[data-accent="green"] { --primary: 145 52% 32%; --background: 145 22% 96.5%; --ring: 145 55% 35%; --accent: 145 35% 92%; --accent-foreground: 145 45% 22%; }
-[data-accent="orange"] { --primary: 25 76% 43%; --background: 25 22% 96.5%; --ring: 25 78% 45%; --accent: 25 62% 93%; --accent-foreground: 25 55% 24%; }
-[data-accent="red"] { --primary: 4 65% 43%; --background: 4 22% 96.5%; --ring: 4 68% 45%; --accent: 4 48% 94%; --accent-foreground: 4 52% 25%; }
-[data-accent="pink"] { --primary: 333 58% 45%; --background: 333 22% 96.5%; --ring: 333 60% 48%; --accent: 333 42% 94%; --accent-foreground: 333 48% 26%; }
+[data-accent="blue"] { --primary: 214 70% 43%; --ring: 214 70% 45%; --accent: 214 38% 93%; --accent-foreground: 214 55% 25%; }
+[data-accent="purple"] { --primary: 270 52% 45%; --ring: 270 55% 48%; --accent: 270 35% 94%; --accent-foreground: 270 45% 26%; }
+[data-accent="green"] { --primary: 145 52% 32%; --ring: 145 55% 35%; --accent: 145 35% 92%; --accent-foreground: 145 45% 22%; }
+[data-accent="orange"] { --primary: 25 76% 43%; --ring: 25 78% 45%; --accent: 25 62% 93%; --accent-foreground: 25 55% 24%; }
+[data-accent="red"] { --primary: 4 65% 43%; --ring: 4 68% 45%; --accent: 4 48% 94%; --accent-foreground: 4 52% 25%; }
+[data-accent="pink"] { --primary: 333 58% 45%; --ring: 333 60% 48%; --accent: 333 42% 94%; --accent-foreground: 333 48% 26%; }
 
 /* Hobby accents.
    Hobbies are the one place that gets a richer palette, so each accent needs
@@ -115,12 +115,12 @@
 .dark[data-hobby-accent="pink"] { --hobby: 333 72% 70%; --hobby-soft: 333 30% 20%; --hobby-ink: 333 76% 90%; }
 .dark[data-hobby-accent="sand"] { --hobby: 38 60% 66%; --hobby-soft: 34 22% 18%; --hobby-ink: 38 62% 86%; }
 
-.dark[data-accent="blue"] { --primary: 214 78% 66%; --background: 214 24% 8%; --ring: 214 78% 68%; --accent: 214 42% 20%; --accent-foreground: 214 72% 88%; }
-.dark[data-accent="purple"] { --primary: 270 72% 72%; --background: 270 24% 8%; --ring: 270 75% 74%; --accent: 270 38% 21%; --accent-foreground: 270 72% 90%; }
-.dark[data-accent="green"] { --primary: 145 62% 55%; --background: 145 24% 8%; --ring: 145 65% 58%; --accent: 145 35% 19%; --accent-foreground: 145 65% 86%; }
-.dark[data-accent="orange"] { --primary: 25 82% 64%; --background: 25 24% 8%; --ring: 25 84% 66%; --accent: 25 42% 20%; --accent-foreground: 25 82% 88%; }
-.dark[data-accent="red"] { --primary: 4 78% 65%; --background: 4 24% 8%; --ring: 4 80% 68%; --accent: 4 38% 20%; --accent-foreground: 4 82% 88%; }
-.dark[data-accent="pink"] { --primary: 333 72% 68%; --background: 333 24% 8%; --ring: 333 75% 71%; --accent: 333 38% 21%; --accent-foreground: 333 78% 90%; }
+.dark[data-accent="blue"] { --primary: 214 78% 66%; --ring: 214 78% 68%; --accent: 214 42% 20%; --accent-foreground: 214 72% 88%; }
+.dark[data-accent="purple"] { --primary: 270 72% 72%; --ring: 270 75% 74%; --accent: 270 38% 21%; --accent-foreground: 270 72% 90%; }
+.dark[data-accent="green"] { --primary: 145 62% 55%; --ring: 145 65% 58%; --accent: 145 35% 19%; --accent-foreground: 145 65% 86%; }
+.dark[data-accent="orange"] { --primary: 25 82% 64%; --ring: 25 84% 66%; --accent: 25 42% 20%; --accent-foreground: 25 82% 88%; }
+.dark[data-accent="red"] { --primary: 4 78% 65%; --ring: 4 80% 68%; --accent: 4 38% 20%; --accent-foreground: 4 82% 88%; }
+.dark[data-accent="pink"] { --primary: 333 72% 68%; --ring: 333 75% 71%; --accent: 333 38% 21%; --accent-foreground: 333 78% 90%; }
 
 @theme inline {
   --color-background: hsl(var(--background));
@@ -179,23 +179,6 @@
     height: 100%;
     width: 100%;
     -webkit-text-size-adjust: 100%;
-  }
-
-  /* Ambient wash.
-     A fixed, purely decorative layer that lifts the app off flat colour.
-     It is fixed (never repaints on scroll) and lives at z-index -1, so it
-     sits behind in-flow content without adding a wrapper element or
-     disturbing any layout. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(52rem 30rem at 6% -14%, hsl(var(--primary) / 0.13), transparent 60%),
-      radial-gradient(42rem 26rem at 98% 0%, hsl(var(--signal) / 0.08), transparent 62%),
-      radial-gradient(50rem 28rem at 50% 112%, hsl(var(--primary) / 0.07), transparent 62%);
   }
 
   body {
