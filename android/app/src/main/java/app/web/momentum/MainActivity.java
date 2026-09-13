@@ -12,9 +12,11 @@ import androidx.core.graphics.Insets;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.util.Locale;
+
 public class MainActivity extends BridgeActivity {
-	private volatile int safeTop;
-	private volatile int safeBottom;
+	private volatile float safeTopDp;
+	private volatile float safeBottomDp;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
@@ -26,9 +28,12 @@ public class MainActivity extends BridgeActivity {
 		ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (view, insets) -> {
 			Insets systemBars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars()
 					| androidx.core.view.WindowInsetsCompat.Type.displayCutout());
-			Insets gestures = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.mandatorySystemGestures());
-			safeTop = systemBars.top;
-			safeBottom = Math.max(systemBars.bottom, gestures.bottom);
+			float density = getResources().getDisplayMetrics().density;
+			if (density <= 0f) {
+				density = 1.0f;
+			}
+			safeTopDp = systemBars.top / density;
+			safeBottomDp = systemBars.bottom / density;
 			updateWebViewInsets(webView);
 			return insets;
 		});
@@ -49,9 +54,13 @@ public class MainActivity extends BridgeActivity {
 
 	private void updateWebViewInsets(WebView webView) {
 		webView.evaluateJavascript(
-				"(function(){var s=document.documentElement.style;"
-						+ "s.setProperty('--momentum-safe-area-inset-top','" + safeTop + "px');"
-						+ "s.setProperty('--momentum-safe-area-inset-bottom','" + safeBottom + "px');})();",
+				String.format(
+						Locale.US,
+						"(function(){var s=document.documentElement.style;"
+								+ "s.setProperty('--momentum-safe-area-inset-top','%.2fpx');"
+								+ "s.setProperty('--momentum-safe-area-inset-bottom','%.2fpx');})();",
+						safeTopDp,
+						safeBottomDp),
 				null);
 	}
 
@@ -71,7 +80,11 @@ public class MainActivity extends BridgeActivity {
 	private final class SystemUiBridge {
 		@JavascriptInterface
 		public String getSafeAreaInsets() {
-			return "{\"top\":" + safeTop + ",\"bottom\":" + safeBottom + "}";
+			return String.format(
+					Locale.US,
+					"{\"top\":%.2f,\"bottom\":%.2f}",
+					safeTopDp,
+					safeBottomDp);
 		}
 
 		@JavascriptInterface

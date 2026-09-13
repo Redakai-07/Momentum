@@ -369,7 +369,7 @@ export function TodayView() {
   };
 
   return (
-    <PageFrame>
+    <PageFrame className="pt-3 sm:pt-4">
       {!ready || !now || !derived ? (
         <div className="space-y-6">
           <div className="space-y-2.5">

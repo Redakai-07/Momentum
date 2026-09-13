@@ -74,7 +74,7 @@ function ShellInner({ children }: { children: ReactNode }) {
     <div className="min-h-dvh">
       <DesktopSidebar />
       <div className="flex min-h-dvh flex-col lg:pl-[228px]">
-        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-[max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px),1.5rem)] sm:px-8 sm:pt-[max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px),2rem)] lg:px-10 lg:pb-16 lg:pt-[max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px),2.5rem)]">
+        <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-[calc(max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px))+1.25rem)] sm:px-8 sm:pt-[calc(max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px))+1.75rem)] lg:px-10 lg:pb-16 lg:pt-[calc(max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px))+2rem)]">
           {children}
         </main>
         <MobileNav />
@@ -217,9 +217,9 @@ function MobileNav() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-30 bg-background pb-[max(env(safe-area-inset-bottom),var(--momentum-safe-area-inset-bottom,0px),6px)] lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-card/95 pb-[max(env(safe-area-inset-bottom),var(--momentum-safe-area-inset-bottom,0px),8px)] pt-1.5 shadow-[0_-1px_3px_rgba(0,0,0,0.03)] backdrop-blur-md dark:border-border/60 dark:bg-card/95 lg:hidden"
     >
-      <div className="grid translate-y-1 grid-cols-4">
+      <div className="grid grid-cols-4 px-1">
         {NAV_ITEMS.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;
@@ -229,25 +229,30 @@ function MobileNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-12 flex-col items-center justify-center gap-0.5 py-1",
-                active ? "text-foreground" : "text-muted-foreground/80",
+                "group flex min-h-[50px] flex-col items-center justify-center gap-1 rounded-xl py-1 transition-transform duration-150 active:scale-95",
+                active ? "text-primary" : "text-muted-foreground/75 hover:text-foreground",
               )}
             >
               <span
                 className={cn(
-                  "grid h-6 w-10 place-items-center rounded-full transition-colors",
-                  active && "bg-primary/10",
+                  "grid h-7 w-12 place-items-center rounded-full transition-all duration-200",
+                  active
+                    ? "bg-primary/12 text-primary"
+                    : "text-muted-foreground/75 group-hover:bg-muted/40",
                 )}
               >
                 <Icon
-                  className={cn("h-[18px] w-[18px]", active && "text-primary")}
-                  strokeWidth={active ? 2 : 1.75}
+                  className={cn(
+                    "h-[19px] w-[19px] transition-transform duration-200",
+                    active && "scale-105",
+                  )}
+                  strokeWidth={active ? 2.1 : 1.75}
                 />
               </span>
               <span
                 className={cn(
-                  "text-[10px] font-medium tracking-wide",
-                  active ? "text-primary" : "text-muted-foreground/80",
+                  "text-[10.5px] tracking-tight transition-colors",
+                  active ? "font-semibold text-primary" : "font-medium text-muted-foreground/80",
                 )}
               >
                 {item.label}
