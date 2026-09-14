@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { nativeIdForKey, notificationSchema, type NativeNotifRecord } from "./service";
+import {
+  nativeIdForKey,
+  notificationSchema,
+  checkPermission,
+  sendTestNotification,
+  sendWelcomeNotification,
+  type NativeNotifRecord,
+} from "./service";
 
 /**
  * Regression tests for the Android delivery bug.
@@ -48,11 +55,13 @@ describe("notificationSchema — alarms must never depend on special access", ()
     expect(schema.title).toBe("DSA Practice");
   });
 
-  it("bypasses Doze only for imminent reminders", () => {
+  it("bypasses Doze for reminders scheduled within the day", () => {
     const soon = notificationSchema(record({ at: new Date(NOW + 5 * 60_000) }), "denied", NOW);
-    const later = notificationSchema(record({ at: new Date(NOW + 6 * 60 * 60_000) }), "denied", NOW);
+    const inFewHours = notificationSchema(record({ at: new Date(NOW + 6 * 60 * 60_000) }), "denied", NOW);
+    const farFuture = notificationSchema(record({ at: new Date(NOW + 48 * 60 * 60_000) }), "denied", NOW);
     expect(soon.schedule?.allowWhileIdle).toBe(true);
-    expect(later.schedule?.allowWhileIdle).toBe(false);
+    expect(inFewHours.schedule?.allowWhileIdle).toBe(true);
+    expect(farFuture.schedule?.allowWhileIdle).toBe(false);
   });
 });
 
@@ -71,3 +80,23 @@ describe("nativeIdForKey", () => {
     }
   });
 });
+
+describe("notification permissions and test trigger", () => {
+  it("checks permission safely in node/test environment", async () => {
+    const perm = await checkPermission();
+    expect(["granted", "denied", "prompt"]).toContain(perm);
+  });
+
+  it("handles test notification call gracefully", async () => {
+    const res = await sendTestNotification(5);
+    expect(res).toBeDefined();
+    expect(typeof res.ok).toBe("boolean");
+    expect(typeof res.message).toBe("string");
+  });
+
+  it("handles sendWelcomeNotification call gracefully", async () => {
+    await expect(sendWelcomeNotification()).resolves.toBeUndefined();
+  });
+});
+
+

@@ -65,35 +65,94 @@ export function nativeAvailable(): boolean {
   return Capacitor.isNativePlatform();
 }
 
+export function webNotificationAvailable(): boolean {
+  if (typeof window === "undefined") return false;
+  return "Notification" in window;
+}
+
 /* ------------------------------------------------------------------ */
 /* Permission                                                          */
 /* ------------------------------------------------------------------ */
 
 /** Check the current permission state (no dialogs). */
 export async function checkPermission(): Promise<PermissionStatus["display"]> {
-  if (!nativeAvailable()) return "granted"; // web never blocks
-  try {
-    const p = await LocalNotifications.checkPermissions();
-    return p.display;
-  } catch {
-    return "denied";
+  if (nativeAvailable()) {
+    try {
+      const p = await LocalNotifications.checkPermissions();
+      return p.display;
+    } catch {
+      return "denied";
+    }
   }
+  if (webNotificationAvailable()) {
+    const perm = window.Notification.permission;
+    if (perm === "granted") return "granted";
+    if (perm === "denied") return "denied";
+    return "prompt";
+  }
+  return "granted";
 }
 
-/** Ask for notification permission (Android shows the system dialog). */
+/** Ask for notification permission (Android or browser shows the system dialog). */
 export async function requestPermission(): Promise<PermissionStatus["display"]> {
-  if (!nativeAvailable()) return "granted";
-  try {
-    const p = await LocalNotifications.requestPermissions();
-    return p.display;
-  } catch {
-    return "denied";
+  if (nativeAvailable()) {
+    try {
+      const p = await LocalNotifications.requestPermissions();
+      return p.display;
+    } catch {
+      return "denied";
+    }
   }
+  if (webNotificationAvailable()) {
+    try {
+      const perm = await window.Notification.requestPermission();
+      if (perm === "granted") return "granted";
+      if (perm === "denied") return "denied";
+      return "prompt";
+    } catch {
+      return "denied";
+    }
+  }
+  return "granted";
 }
 
 /** Whether the OS will actually show Momentum notifications right now. */
 export async function notificationsEnabled(): Promise<boolean> {
   return (await checkPermission()) === "granted";
+}
+
+/* ------------------------------------------------------------------ */
+/* Web notifications helper                                            */
+/* ------------------------------------------------------------------ */
+
+export async function showWebNotification(
+  title: string,
+  options?: NotificationOptions,
+): Promise<boolean> {
+  if (!webNotificationAvailable() || window.Notification.permission !== "granted") {
+    return false;
+  }
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, {
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          ...options,
+        });
+        return true;
+      }
+    }
+    new window.Notification(title, {
+      icon: "/icons/icon-192.png",
+      ...options,
+    });
+    return true;
+  } catch (err) {
+    console.warn("Momentum: failed to show web notification", err);
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -208,9 +267,9 @@ export function notificationSchema(
     body: n.body,
     schedule: {
       at: n.at,
-      // Bypass Doze only for imminent reminders; further-out alarms ride the
-      // normal window so Android's once-per-9-minutes idle cap never delays them.
-      allowWhileIdle: n.at.getTime() - now < IDLE_WINDOW_MS,
+      // Bypass Doze for alarms scheduled within the 24-hour day so Android
+      // reliably wakes the device even when the phone is locked / sleeping.
+      allowWhileIdle: n.at.getTime() - now < 24 * 60 * 60_000,
     },
     channelId: CHANNEL_ID,
     // Exact only when the user already granted it — otherwise inexact, which
@@ -227,8 +286,8 @@ export async function scheduleRecords(records: NativeNotifRecord[]): Promise<Sch
 
   await ensureChannel();
 
-  // Only schedule notifications that are still meaningfully in the future.
-  const future = records.filter((n) => n.at.getTime() > Date.now() + 30_000);
+  // Only schedule notifications that are in the future (at least 1 second out).
+  const future = records.filter((n) => n.at.getTime() > Date.now() + 1000);
   if (future.length === 0) return { scheduled: 0 };
 
   try {
@@ -400,58 +459,94 @@ export interface TestNotificationResult {
 }
 
 /**
- * Schedule a short-lived native notification so delivery can be verified
- * outside the app. Uses the exact same scheduling path as real reminders —
- * if this arrives, reminders will too.
+ * Schedule a short-lived notification so delivery can be verified
+ * outside the app.
  */
 export async function sendTestNotification(
   delaySeconds: number = TEST_NOTIFICATION_DELAY_SECONDS,
 ): Promise<TestNotificationResult> {
-  if (!nativeAvailable()) {
-    return {
-      ok: false,
-      reason: "unsupported",
-      message: "Native notifications are only available in the Android/iOS app.",
-    };
-  }
-
   const permission = await checkPermission();
   if (permission !== "granted") {
     return {
       ok: false,
       reason: "permission",
       message:
-        "Notifications are blocked for Momentum. Enable them in Android settings → Apps → Momentum → Notifications, then try again.",
+        "Notifications are blocked for Momentum. Enable them in settings, then try again.",
     };
   }
-
-  await ensureChannel();
-  await refreshExactAlarmState();
 
   const fireAt = new Date(Date.now() + delaySeconds * 1000);
   const key = `test:${fireAt.getTime()}`;
   const id = nativeIdForKey(key);
 
-  const outcome = await scheduleRecords([
-    { id, key, title: "Momentum", body: "This is a test notification.", at: fireAt },
-  ]);
+  if (nativeAvailable()) {
+    await ensureChannel();
+    await refreshExactAlarmState();
 
-  if (outcome.error) {
+    const outcome = await scheduleRecords([
+      { id, key, title: "Momentum", body: "This is a test notification.", at: fireAt },
+    ]);
+
+    if (outcome.error) {
+      return {
+        ok: false,
+        reason: "error",
+        id,
+        fireAt: fireAt.toISOString(),
+        error: outcome.error,
+        message: `Android rejected the notification: ${outcome.error}`,
+      };
+    }
+
     return {
-      ok: false,
-      reason: "error",
+      ok: true,
       id,
       fireAt: fireAt.toISOString(),
-      error: outcome.error,
-      message: `Android rejected the notification: ${outcome.error}`,
+      warning: outcome.warning,
+      message: `Scheduled for ${delaySeconds}s from now. Background Momentum or lock the screen, then check the notification shade.`,
+    };
+  }
+
+  if (webNotificationAvailable()) {
+    window.setTimeout(() => {
+      void showWebNotification("Momentum", {
+        body: "This is a test notification from Momentum.",
+      });
+    }, Math.max(100, delaySeconds * 1000));
+
+    return {
+      ok: true,
+      id,
+      fireAt: fireAt.toISOString(),
+      message: `Scheduled for ${delaySeconds}s from now. Switch tabs or minimize your browser to see the notification banner.`,
     };
   }
 
   return {
-    ok: true,
-    id,
-    fireAt: fireAt.toISOString(),
-    warning: outcome.warning,
-    message: `Scheduled for ${delaySeconds}s from now. Background Momentum or lock the screen, then check the Android notification shade.`,
+    ok: false,
+    reason: "unsupported",
+    message: "Notifications are not supported in this browser/environment.",
   };
 }
+
+/**
+ * Send an immediate one-time confirmation notification when the user allows notifications.
+ */
+export async function sendWelcomeNotification(): Promise<void> {
+  const title = "Momentum";
+  const body = "Notifications enabled! You'll receive timely reminders for your scheduled tasks.";
+
+  if (nativeAvailable()) {
+    await ensureChannel();
+    await refreshExactAlarmState();
+    const fireAt = new Date(Date.now() + 1500); // 1.5s delay so system permission dialog finishes closing
+    const key = "welcome:granted";
+    const id = nativeIdForKey(key);
+    await scheduleRecords([
+      { id, key, title, body, at: fireAt },
+    ]);
+  } else if (webNotificationAvailable()) {
+    void showWebNotification(title, { body });
+  }
+}
+

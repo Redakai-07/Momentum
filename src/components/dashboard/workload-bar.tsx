@@ -70,14 +70,7 @@ export function WorkloadBar({
           aria-valuenow={Math.round(pct)}
           className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
         >
-          <div
-            className={cn(
-              "anim-fill h-full rounded-full",
-              complete ? "bg-success" : "bg-primary",
-            )}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        </div> 
         {remaining > 0 && (
           <p className="mt-1.5 text-[11.5px] text-muted-foreground">
             <span className="tnum font-medium text-foreground/80">

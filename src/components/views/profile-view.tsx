@@ -157,6 +157,7 @@ function PermissionRow() {
 
   const permissionEnabled = permission === "granted";
   const isDev = process.env.NODE_ENV !== "production";
+  const isNative = diagnostics?.platform === "native";
 
   const sendTest = async () => {
     setSending(true);
@@ -171,12 +172,16 @@ function PermissionRow() {
     <div className="py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[13.5px] font-medium text-foreground">Android/iOS notifications</p>
+          <p className="text-[13.5px] font-medium text-foreground">
+            {isNative ? "System notifications" : "External notifications"}
+          </p>
           <p className="text-xs text-muted-foreground">
             {permissionEnabled
-              ? "Permission granted — reminders are delivered by the system, even in the background."
+              ? isNative
+                ? "Permission granted — reminders are delivered by Android/iOS, even when the app is in the background or locked."
+                : "Permission granted — reminders are delivered by your browser even when minimized."
               : permission === "denied"
-                ? "Blocked. Momentum cannot show reminders until you allow them in Android settings."
+                ? "Blocked. Momentum cannot show reminders until you allow them in notification settings."
                 : "Allow notification permission to receive reminders when Momentum is in the background."}
           </p>
         </div>
@@ -185,16 +190,14 @@ function PermissionRow() {
             <span className="rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">
               On
             </span>
-            {isDev && (
-              <button
-                type="button"
-                disabled={sending}
-                onClick={() => void sendTest()}
-                className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
-              >
-                {sending ? "Scheduling…" : "Send test notification"}
-              </button>
-            )}
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => void sendTest()}
+              className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
+            >
+              {sending ? "Scheduling…" : "Send test notification"}
+            </button>
           </div>
         ) : permission === "denied" ? (
           <button
@@ -215,9 +218,7 @@ function PermissionRow() {
         )}
       </div>
 
-      {/* Development-only: the real acceptance test is an Android notification
-          in the shade while Momentum is not in the foreground. */}
-      {isDev && lastTest && (
+      {lastTest && (
         <p
           role="status"
           className={cn(
@@ -237,26 +238,30 @@ function PermissionRow() {
         </p>
       )}
 
-      {isDev && diagnostics && (
+      {diagnostics && (
         <div className="mt-3 rounded-lg border border-dashed border-border px-3 py-2.5">
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-            Delivery diagnostics (dev)
+            Delivery diagnostics
           </p>
           <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tnum">
             <dt className="text-muted-foreground">Platform</dt>
             <dd className="text-foreground">{diagnostics.platform}</dd>
             <dt className="text-muted-foreground">Permission</dt>
             <dd className="text-foreground">{diagnostics.permission}</dd>
-            <dt className="text-muted-foreground">Channel</dt>
-            <dd className="text-foreground">
-              {diagnostics.channelId} · {diagnostics.channelRegistered ? "registered" : "missing"}
-            </dd>
-            <dt className="text-muted-foreground">Exact alarms</dt>
-            <dd className="text-foreground">
-              {diagnostics.exactAlarm} {diagnostics.exactAlarm === "denied" && "(inexact — still delivered)"}
-            </dd>
-            <dt className="text-muted-foreground">Queued with Android</dt>
-            <dd className="text-foreground">{diagnostics.pendingCount}</dd>
+            {diagnostics.platform === "native" && (
+              <>
+                <dt className="text-muted-foreground">Channel</dt>
+                <dd className="text-foreground">
+                  {diagnostics.channelId} · {diagnostics.channelRegistered ? "registered" : "ready"}
+                </dd>
+                <dt className="text-muted-foreground">Exact alarms</dt>
+                <dd className="text-foreground">
+                  {diagnostics.exactAlarm} {diagnostics.exactAlarm === "denied" && "(inexact — still delivered)"}
+                </dd>
+                <dt className="text-muted-foreground">Queued with OS</dt>
+                <dd className="text-foreground">{diagnostics.pendingCount}</dd>
+              </>
+            )}
           </dl>
           {diagnostics.pending.length > 0 && (
             <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-muted-foreground">
@@ -396,9 +401,9 @@ export function ProfileView() {
 
   const joinedLabel = joined
     ? new Date(joined + "T12:00:00").toLocaleDateString("en-US", {
-        month: "long",
-        year: "numeric",
-      })
+      month: "long",
+      year: "numeric",
+    })
     : null;
 
   return (

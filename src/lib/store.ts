@@ -23,12 +23,14 @@ import {
   requestExactAlarmAccess as openExactAlarmSettings,
   getNativeDiagnostics,
   sendTestNotification,
+  sendWelcomeNotification,
+  showWebNotification,
   type NativeNotifRecord,
   type NativeDiagnostics,
   type TestNotificationResult,
 } from "./notifications/service";
-import type { TaskNotification, NotificationSettings } from "./notifications/types";
-import { canAccomplish, isTaskDone, rolloverTasks, toAccomplished } from "./task-state";
+import { notifKey, type TaskNotification, type NotificationSettings } from "./notifications/types";
+import { canAccomplish, isTaskDone, isTaskDoneOn, rolloverTasks, toAccomplished } from "./task-state";
 import {
   buildBackup,
   serializeBackup,
@@ -409,13 +411,34 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
     settings,
   });
 
+  // Collect candidate reminders from both newly planned creates and existing
+  // scheduled / snoozed records.
+  const candidates = new Map<
+    string,
+    { taskId: string; type: TaskNotification["type"]; date: string; scheduledAt: string; snoozedUntil?: string; status?: string }
+  >();
+
   for (const c of creates) {
-    const fireAt = new Date(c.scheduledAt);
-    const task = s.tasks.find((t) => t.id === c.taskId);
+    candidates.set(notifKey(c), c);
+  }
+  for (const n of s.notifications) {
+    if ((n.status === "scheduled" || n.status === "snoozed") && n.date === today) {
+      candidates.set(notifKey(n), n);
+    }
+  }
+
+  for (const item of candidates.values()) {
+    const fireAt = new Date(
+      item.status === "snoozed" && item.snoozedUntil ? item.snoozedUntil : item.scheduledAt,
+    );
+    if (fireAt.getTime() <= now.getTime()) continue;
+
+    const task = s.tasks.find((t) => t.id === item.taskId);
     if (!task || task.status !== "active") continue;
+    if (isTaskDoneOn(task, today)) continue;
 
     // Ordinary reminders: quiet hours + breathing room after activity.
-    if (isOrdinaryType(c.type)) {
+    if (isOrdinaryType(item.type)) {
       if (isQuietHours(fireAt, settings)) continue;
       const recentActivity = Math.min(
         minutesSince(s.notificationMeta.lastMeaningfulActivityAt, now),
@@ -425,15 +448,15 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
     }
 
     const body =
-      c.type === "next_task"
+      item.type === "next_task"
         ? task.nextAction
           ? `Next: ${task.nextAction}`
-          : notificationMessage(c, task.title)
-        : notificationMessage(c, task.title);
+          : notificationMessage(item, task.title)
+        : notificationMessage(item, task.title);
 
     records.push({
-      id: nativeIdForKey(`${c.taskId}:${c.type}:${c.date}`),
-      key: `${c.taskId}:${c.type}:${c.date}`,
+      id: nativeIdForKey(`${item.taskId}:${item.type}:${item.date}`),
+      key: `${item.taskId}:${item.type}:${item.date}`,
       title: task.title,
       body,
       at: fireAt,
@@ -454,7 +477,7 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
   const decision = shouldNotify(decisionCtx);
   if (decision.shouldNotify && decision.priority !== "high") {
     const at = nextOrdinarySlot(now, settings, s.notificationMeta.lastNotificationAt);
-    if (at) {
+    if (at && at.getTime() > now.getTime()) {
       records.push({
         id: nativeIdForKey(`ordinary:${today}`),
         key: `ordinary:${today}`,
@@ -465,7 +488,7 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
     }
   }
 
-  return records;
+  return records.sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
 const devLog = (msg: string, data?: unknown) => {
@@ -473,6 +496,21 @@ const devLog = (msg: string, data?: unknown) => {
     console.debug(`[notifications] ${msg}`, data ?? "");
   }
 };
+
+/**
+ * Trigger a one-time welcome notification as soon as the user grants notification permissions.
+ */
+async function triggerWelcomeNotificationOnce(): Promise<void> {
+  try {
+    const alreadySent = await readMetaValue<boolean>("welcomeNotificationSent");
+    if (!alreadySent) {
+      await writeMetaValue("welcomeNotificationSent", true);
+      await sendWelcomeNotification();
+    }
+  } catch (err) {
+    console.warn("Momentum: failed to trigger welcome notification", err);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Boot + internal sync (called through the create closure)            */
@@ -609,6 +647,9 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
       await writeMetaValue("notificationPermissionState", granted);
       set({ notificationPermission: granted });
       devLog("first-use permission", granted);
+      if (granted === "granted") {
+        void triggerWelcomeNotificationOnce();
+      }
     }
 
     await get().syncNativeNotifications();
@@ -1210,6 +1251,30 @@ export const useStore = create<MomentumState>()((set, get) => ({
     } catch (err) {
       logError("sync notifications")(err);
     }
+
+    // On web environments, show external browser notifications for newly delivered cues
+    if (!nativeAvailable()) {
+      const newlyDelivered = [
+        ...updates.filter(
+          (u) =>
+            u.status === "delivered" &&
+            s.notifications.find((x) => x.id === u.id)?.status === "scheduled",
+        ),
+        ...stamped.filter((d) => d.status === "delivered"),
+      ];
+      for (const n of newlyDelivered) {
+        const task = s.tasks.find((t) => t.id === n.taskId);
+        if (task) {
+          const body =
+            n.type === "next_task"
+              ? task.nextAction
+                ? `Next: ${task.nextAction}`
+                : notificationMessage(n, task.title)
+              : notificationMessage(n, task.title);
+          void showWebNotification(task.title, { body });
+        }
+      }
+    }
   },
 
   /**
@@ -1325,6 +1390,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
     set({ notificationPermission: permission });
     if (permission === "granted") {
       await get().syncNativeNotifications();
+      void triggerWelcomeNotificationOnce();
     }
     await get().refreshNotificationDiagnostics();
     devLog("permission requested", permission);
@@ -1373,6 +1439,11 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const permission = await checkPermission();
     await writeMetaValue("notificationPermissionState", permission);
     set({ notificationPermission: permission });
+    if (permission === "granted") {
+      await get().syncNativeNotifications();
+      void triggerWelcomeNotificationOnce();
+    }
+    await get().refreshNotificationDiagnostics();
   },
 
   setProfileName: (name) => {
