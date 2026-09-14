@@ -33,7 +33,7 @@ export function WorkloadBar({
         className,
       )}
     >
-      <ProgressRing
+      {/* <ProgressRing
         value={pct}
         size={58}
         stroke={6}
@@ -43,7 +43,7 @@ export function WorkloadBar({
           {Math.round(pct)}
           <span className="text-[10px] text-muted-foreground">%</span>
         </span>
-      </ProgressRing>
+      </ProgressRing> */}
 
       <div className="min-w-0 flex-1">
         <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -70,6 +70,13 @@ export function WorkloadBar({
           aria-valuenow={Math.round(pct)}
           className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
         >
+          <div
+            className={cn(
+              "anim-fill h-full rounded-full",
+              complete ? "bg-success" : "bg-primary",
+            )}
+            style={{ width: `${pct}%` }}
+          />
         </div> 
         {remaining > 0 && (
           <p className="mt-1.5 text-[11.5px] text-muted-foreground">

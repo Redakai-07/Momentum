@@ -147,8 +147,9 @@ function NameRow() {
 
 function PermissionRow() {
   const permission = useStore((s) => s.notificationPermission);
+  const notificationsEnabled = useStore((s) => s.notificationSettings.enabled);
+  const setNotificationSettings = useStore((s) => s.setNotificationSettings);
   const requestPermission = useStore((s) => s.requestNotificationPermission);
-  const refreshPermission = useStore((s) => s.refreshNotificationPermission);
   const testNotification = useStore((s) => s.testNotification);
   const lastTest = useStore((s) => s.lastTestNotification);
   const diagnostics = useStore((s) => s.notificationDiagnostics);
@@ -156,13 +157,22 @@ function PermissionRow() {
   const [sending, setSending] = useState(false);
 
   const permissionEnabled = permission === "granted";
-  const isDev = process.env.NODE_ENV !== "production";
   const isNative = diagnostics?.platform === "native";
+  const systemEnabled = permissionEnabled && notificationsEnabled;
 
-  const sendTest = async () => {
+  const toggleSystemNotifications = async () => {
+    if (systemEnabled) {
+      setNotificationSettings({ enabled: false });
+      return;
+    }
+
     setSending(true);
     try {
-      await testNotification();
+      const nextPermission = await requestPermission();
+      if (nextPermission === "granted") {
+        setNotificationSettings({ enabled: true });
+        await testNotification();
+      }
     } finally {
       setSending(false);
     }
@@ -176,7 +186,7 @@ function PermissionRow() {
             {isNative ? "System notifications" : "External notifications"}
           </p>
           <p className="text-xs text-muted-foreground">
-            {permissionEnabled
+            {systemEnabled
               ? isNative
                 ? "Permission granted — reminders are delivered by Android/iOS, even when the app is in the background or locked."
                 : "Permission granted — reminders are delivered by your browser even when minimized."
@@ -185,37 +195,24 @@ function PermissionRow() {
                 : "Allow notification permission to receive reminders when Momentum is in the background."}
           </p>
         </div>
-        {permissionEnabled ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <span className="rounded-full bg-success/10 px-2.5 py-1 font-mono text-[11px] font-medium text-success">
-              On
-            </span>
-            <button
-              type="button"
-              disabled={sending}
-              onClick={() => void sendTest()}
-              className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
-            >
-              {sending ? "Scheduling…" : "Send test notification"}
-            </button>
-          </div>
-        ) : permission === "denied" ? (
-          <button
-            type="button"
-            onClick={() => void refreshPermission()}
-            className="shrink-0 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
-          >
-            Check again
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void requestPermission()}
-            className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Allow
-          </button>
-        )}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={systemEnabled}
+          disabled={sending}
+          onClick={() => void toggleSystemNotifications()}
+          className={cn(
+            "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:opacity-50",
+            systemEnabled ? "bg-primary" : "bg-muted",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute top-0.5 h-4 w-4 rounded-full bg-card shadow-soft transition-transform",
+              systemEnabled ? "translate-x-4.5" : "translate-x-0.5",
+            )}
+          />
+        </button>
       </div>
 
       {lastTest && (
@@ -238,50 +235,16 @@ function PermissionRow() {
         </p>
       )}
 
-      {diagnostics && (
-        <div className="mt-3 rounded-lg border border-dashed border-border px-3 py-2.5">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-            Delivery diagnostics
-          </p>
-          <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] tnum">
-            <dt className="text-muted-foreground">Platform</dt>
-            <dd className="text-foreground">{diagnostics.platform}</dd>
-            <dt className="text-muted-foreground">Permission</dt>
-            <dd className="text-foreground">{diagnostics.permission}</dd>
-            {diagnostics.platform === "native" && (
-              <>
-                <dt className="text-muted-foreground">Channel</dt>
-                <dd className="text-foreground">
-                  {diagnostics.channelId} · {diagnostics.channelRegistered ? "registered" : "ready"}
-                </dd>
-                <dt className="text-muted-foreground">Exact alarms</dt>
-                <dd className="text-foreground">
-                  {diagnostics.exactAlarm} {diagnostics.exactAlarm === "denied" && "(inexact — still delivered)"}
-                </dd>
-                <dt className="text-muted-foreground">Queued with OS</dt>
-                <dd className="text-foreground">{diagnostics.pendingCount}</dd>
-              </>
-            )}
-          </dl>
-          {diagnostics.pending.length > 0 && (
-            <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-muted-foreground">
-              {diagnostics.pending.slice(0, 4).map((p) => (
-                <li key={p.id} className="truncate">
-                  #{p.id} · {p.title}
-                  {p.at ? ` · ${new Date(p.at).toLocaleString()}` : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-          {diagnostics.platform === "native" && diagnostics.exactAlarm === "denied" && (
-            <button
-              type="button"
-              onClick={() => void requestExactAlarm()}
-              className="mt-2 rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
-            >
-              Enable precise timing (optional)
-            </button>
-          )}
+      {diagnostics?.platform === "native" && diagnostics.exactAlarm === "denied" && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5">
+          <p className="text-xs text-muted-foreground">Sharper reminder times. Delivery works without it.</p>
+          <button
+            type="button"
+            onClick={() => void requestExactAlarm()}
+            className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+          >
+            Enable precise timing
+          </button>
         </div>
       )}
     </div>
@@ -592,12 +555,6 @@ export function ProfileView() {
               </h2>
             </div>
             <div className="divide-y divide-border/60 rounded-xl border border-border bg-card/60 px-4">
-              <ToggleRow
-                checked={notificationSettings.enabled}
-                onChange={(v) => setNotificationSettings({ enabled: v })}
-                label="Notifications"
-                sub="Master switch for local task reminders."
-              />
               <ToggleRow
                 checked={notificationSettings.taskReminders}
                 onChange={(v) => setNotificationSettings({ taskReminders: v })}
