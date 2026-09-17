@@ -41,3 +41,29 @@ export function useNow(intervalMs = 30_000): Date | null {
 
   return now;
 }
+
+/**
+ * A once-a-second clock, used only while a focus session needs a live
+ * countdown. Returns null until mounted so SSR stays deterministic.
+ *
+ * This is presentation cadence, not timekeeping: the session's elapsed time is
+ * derived from timestamps, so a missed tick (backgrounded WebView, throttled
+ * timer) costs nothing but a stale digit.
+ */
+export function useSecondTick(enabled: boolean): number | null {
+  const [tick, setTick] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const start = window.setTimeout(() => {
+      setTick(Date.now());
+    }, 0);
+    const id = window.setInterval(() => setTick(Date.now()), 1000);
+    return () => {
+      window.clearTimeout(start);
+      window.clearInterval(id);
+    };
+  }, [enabled]);
+
+  return tick;
+}

@@ -21,6 +21,16 @@ interface CellInfo {
   special: boolean;
 }
 
+/**
+ * Day marker.
+ *
+ * A dot on *every* square is what made the month read like a table grid: with
+ * a daily task, each cell carried the same mark and the eye saw ruled columns
+ * instead of a month. The marker now means "something is scheduled that you
+ * have not finished", which is worth noticing, and a completed day simply goes
+ * quiet.
+ */
+
 export function CalendarView() {
   const mounted = useMounted();
   const ready = useStore((s) => s.ready);
@@ -41,6 +51,10 @@ export function CalendarView() {
       let special = false;
       for (const task of tasks) {
         if (!taskOccursOn(task, key, sections)) continue;
+        // A task cannot be outstanding on a day that predates it. Recurrence
+        // itself is untouched — this only stops the calendar from claiming
+        // work existed before the user created it.
+        if (task.createdAt.slice(0, 10) > key) continue;
         if (task.status === "active") openCount += 1;
         if (task.status === "active" && task.dueDate === key) special = true;
       }
@@ -68,7 +82,7 @@ export function CalendarView() {
       <PageHeader
         eyebrow="Schedule"
         title="Calendar"
-        sub="Days with tasks carry a small dot. A star marks a due date."
+        sub="Pick a day to see what is planned."
         aside={
           <div className="flex items-center gap-1">
             <Button
@@ -108,15 +122,18 @@ export function CalendarView() {
         <ListSkeleton rows={5} />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-w-0">
-            <div className="grid grid-cols-7 px-1">
+          <div className="surface min-w-0 rounded-2xl px-3 py-5 sm:px-5">
+            <div className="grid grid-cols-7">
               {WEEKDAYS_MON_FIRST.map((day) => (
-                <div key={day} className="pb-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+                <div
+                  key={day}
+                  className="pb-4 text-center font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/60"
+                >
                   {day.slice(0, 1)}
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-7 gap-y-2">
+            <div className="grid grid-cols-7 gap-y-0.5">
               {cells.map((cell) => {
                 const inMonth = isSameMonth(cell.date, view);
                 const isToday = dateKey(today) === cell.key;
@@ -131,35 +148,50 @@ export function CalendarView() {
                       setSelected(cell.date);
                       if (!inMonth) setViewAnchor(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));
                     }}
-                    className={cn(
-                      "group flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-xl transition-[background-color,color,transform] duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
-                      !inMonth && "text-muted-foreground/35",
-                      isSelected && "bg-primary/10 text-primary",
-                      !isSelected && "hover:bg-muted/60",
-                    )}
+                    className="group relative flex min-h-11 min-w-0 items-center justify-center rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                   >
-                    <span className={cn(
-                      "grid h-7 w-7 place-items-center rounded-full font-mono text-[11px] tnum transition-colors",
-                      isToday && "bg-primary font-semibold text-primary-foreground",
-                      !isToday && isSelected && "font-semibold",
-                      !isToday && !isSelected && inMonth && "text-foreground",
-                    )}>
+                    {/* Selected reads as a soft ring; today reads as a solid
+                        disc. Two states, two shapes, neither shouting. */}
+                    {isSelected && !isToday && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-1.5 inset-y-0.5 rounded-lg bg-muted"
+                      />
+                    )}
+                    <span
+                      className={cn(
+                        "relative grid h-7 w-7 place-items-center rounded-full font-mono text-[11.5px] tnum transition-colors",
+                        isToday && "bg-primary font-semibold text-primary-foreground",
+                        !isToday && isSelected && "font-semibold text-foreground",
+                        !isToday && !isSelected && inMonth && "text-foreground/85 group-hover:bg-muted",
+                        !inMonth && "text-muted-foreground/30",
+                      )}
+                    >
                       {cell.date.getDate()}
                     </span>
-                    <span className="flex h-1.5 items-center gap-1">
+                    <span aria-hidden className="absolute bottom-0.5 flex items-center gap-1">
                       {cell.special ? (
                         <Star className="h-2.5 w-2.5 text-signal" fill="currentColor" strokeWidth={0} />
                       ) : cell.openCount > 0 ? (
-                        <span className={cn("h-1.5 w-1.5 rounded-full", isSelected ? "bg-primary" : "bg-primary/60")} />
+                        <span
+                          className={cn(
+                            "h-1 w-1 rounded-full",
+                            isToday || isSelected ? "bg-primary" : "bg-primary/45",
+                          )}
+                        />
                       ) : null}
                     </span>
                   </button>
                 );
               })}
             </div>
-            <div className="mt-4 flex items-center gap-4 px-1 text-[11px] text-muted-foreground">
-              <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-primary/60" /> task scheduled</span>
-              <span className="flex items-center gap-1.5"><Star className="h-2.5 w-2.5 text-signal" fill="currentColor" strokeWidth={0} /> due date</span>
+            <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border/50 px-0.5 pt-3 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="h-1 w-1 rounded-full bg-primary/60" /> work left
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Star className="h-2.5 w-2.5 text-signal" fill="currentColor" strokeWidth={0} /> due date
+              </span>
             </div>
           </div>
 

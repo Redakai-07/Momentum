@@ -2,7 +2,7 @@ import { dateKey, parseKey } from "../date";
 import type { CustomSection, Task, TimeLog } from "../types";
 import { taskOccursOn } from "../schedule";
 import { isTaskDoneOn, remainingOn } from "../task-state";
-import { plannedMinutesOf } from "../duration";
+import { isTimedTask, plannedMinutesOf } from "../duration";
 import type { NotificationSettings } from "./types";
 
 /**
@@ -146,6 +146,205 @@ export function pickReminderTask(
 
 const ACTIVITY_BREATH_MINUTES = 30;
 
+/** Minimum lead time before an ordinary reminder may fire. */
+export const REMINDER_LEAD_MINUTES = 30;
+
+/**
+ * How today's work stands, independent of the clock.
+ *
+ * Shared by the point-in-time decision (`shouldNotify`) and the
+ * future-oriented planner (`planDayReminder`) so the two can never drift
+ * apart on what "there is still work to do" means.
+ */
+export interface DayWorkState {
+  key: string;
+  /** Tasks present today with effort still outstanding. */
+  open: Task[];
+  /** Overdue or due-today task — the day's most urgent item. */
+  critical: Task | null;
+  /** Whether anything at all is present today. */
+  hasTasks: boolean;
+  /** Whether the user has already logged minutes today. */
+  hasProgress: boolean;
+  /** Total outstanding minutes across today's timed work. */
+  remainingMinutes: number;
+}
+
+export function dayWorkState(ctx: DecisionContext): DayWorkState {
+  const key = dateKey(ctx.now);
+  // "Present" is deliberately completion-agnostic: a day whose work is all
+  // finished must report `hasTasks` + no open work, so the plan can honestly
+  // say "all done" instead of pretending nothing was ever scheduled.
+  const present = ctx.tasks.filter(
+    (t) =>
+      taskOccursOn(t, key, ctx.sections) ||
+      // Overdue one-offs stay relevant until they are dealt with.
+      Boolean(t.dueDate && t.dueDate <= key),
+  );
+  const loggedIds = new Set(
+    ctx.logs.filter((l) => l.date === key).map((l) => l.taskId),
+  );
+  const open = present.filter((t) => isOutstanding(t, key, loggedIds.has(t.id)));
+  return {
+    key,
+    open,
+    critical: open.find((t) => isOverdue(t, key) || isDueToday(t, key)) ?? null,
+    hasTasks: present.length > 0,
+    hasProgress: ctx.logs.some((l) => l.date === key && l.minutes > 0),
+    remainingMinutes: open.reduce(
+      (sum, t) =>
+        sum + (isTimedTask(t) ? remainingOn(t, key, loggedIds.has(t.id)) : 0),
+      0,
+    ),
+  };
+}
+
+/**
+ * Whether a task still has work left today.
+ *
+ * Timed work is measured in minutes; completion-based work (no duration) has
+ * no minutes to measure, so it is outstanding while it is simply not done.
+ * Treating it as "0 minutes remaining" used to make a day of reminders look
+ * finished before it had started.
+ */
+export function isOutstanding(
+  task: Task,
+  key: string,
+  loggedToday: boolean,
+): boolean {
+  if (isTimedTask(task)) return remainingOn(task, key, loggedToday) > 0;
+  return !isTaskDoneOn(task, key);
+}
+
+/** First moment at or after `from` that sits outside quiet hours. */
+export function nextOutsideQuiet(settings: NotificationSettings, from: Date): Date {
+  let t = new Date(from);
+  for (let i = 0; i < 24 * 4; i++) {
+    if (!isQuietHours(t, settings)) return t;
+    t = new Date(t.getTime() + 15 * MIN);
+  }
+  return t;
+}
+
+/** ISO → epoch ms, or `null` when missing/unparseable. */
+function ms(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * The result of planning a *whole day*, not a single moment.
+ *
+ * This is what the native scheduler consumes. `shouldNotify` answers "is a
+ * reminder appropriate right now?", which is the wrong question for an alarm
+ * that has to fire later, while the app is closed — see `planDayReminder`.
+ */
+export interface DayPlan {
+  eligible: boolean;
+  reason: DecisionReason;
+  priority: ReminderPriority;
+  /** The task the day's nudge should point at. */
+  task: Task | null;
+  message: string | null;
+  /**
+   * Earliest stable moment an ordinary reminder may fire today, or null when
+   * the day has run out of non-quiet time.
+   */
+  earliest: Date | null;
+}
+
+/**
+ * Decide whether TODAY deserves a reminder, and from when it may fire.
+ *
+ * The crucial difference from `shouldNotify`: this deliberately does **not**
+ * test the "idle gap" against the current instant.
+ *
+ * That gap is measured from `lastInteractionAt`, which is refreshed every time
+ * the app opens, resumes, or a task changes — i.e. at exactly the moments the
+ * scheduler runs. Gating a *future* alarm on a *present* gap means the alarm
+ * was suppressed every time it could have been created, and nothing was left
+ * pending once the user closed the app. Notifications therefore never fired.
+ *
+ * Instead the gap shapes `earliest` — when the alarm may fire — so the
+ * anti-spam intent is preserved without making delivery depend on the app
+ * being open.
+ */
+export function planDayReminder(ctx: DecisionContext): DayPlan {
+  const { now, settings } = ctx;
+  const none = (
+    reason: DecisionReason,
+    priority: ReminderPriority = "low",
+    task: Task | null = null,
+  ): DayPlan => ({ eligible: false, reason, priority, task, message: null, earliest: null });
+
+  if (!settings.enabled) return none("notifications_disabled");
+
+  const state = dayWorkState(ctx);
+  if (!state.hasTasks) return none("no_tasks");
+  if (state.open.length === 0) return none("all_done");
+
+  const target = state.critical ?? pickReminderTask(
+    ctx.tasks,
+    state.key,
+    ctx.lastReminderByTask,
+    ctx.sections,
+  );
+  if (!target) return none("no_next_step");
+
+  // Already reminded about this task today? Then the day is done covering it.
+  const last = ctx.lastReminderByTask?.[target.id];
+  if (last && last.slice(0, 10) === state.key) {
+    return none("already_notified", "normal", target);
+  }
+
+  const highPriority = state.critical !== null;
+  const priority: ReminderPriority = highPriority
+    ? "high"
+    : state.remainingMinutes >= 90 || target.nextAction
+      ? "normal"
+      : "low";
+
+  // Earliest stable firing moment: a small lead from now, breathing room after
+  // real work, and never before an ordinary cooldown has elapsed. High-priority
+  // work may pierce the ordinary cooldown, exactly as `shouldNotify` allows.
+  let at = now.getTime() + REMINDER_LEAD_MINUTES * MIN;
+  const activity = Math.max(
+    ms(ctx.lastMeaningfulActivityAt) ?? 0,
+    ms(ctx.lastTaskCompletionAt) ?? 0,
+  );
+  if (activity > 0) {
+    at = Math.max(at, activity + ACTIVITY_BREATH_MINUTES * MIN);
+  }
+  const lastNotified = ms(ctx.lastNotificationAt);
+  if (!highPriority && lastNotified !== null) {
+    at = Math.max(at, lastNotified + settings.cooldownMinutes * MIN);
+  }
+
+  const slot = nextOutsideQuiet(settings, new Date(at));
+  const message = target.nextAction
+    ? `Next: ${target.nextAction}`
+    : state.critical
+      ? `${target.title} is still waiting.`
+      : target.title;
+
+  return {
+    eligible: true,
+    reason: highPriority
+      ? isOverdue(target, state.key)
+        ? "overdue_task"
+        : "special_task"
+      : target.nextAction
+        ? "next_action"
+        : "normal_remaining",
+    priority,
+    task: target,
+    message,
+    // A slot that spills into tomorrow belongs to tomorrow's plan, not today's.
+    earliest: dateKey(slot) === state.key ? slot : null,
+  };
+}
+
 function rankTask(t: Task, today: string): number {
   if (isOverdue(t, today)) return 0;
   if (isDueToday(t, today)) return 1;
@@ -195,8 +394,9 @@ export function shouldNotify(ctx: DecisionContext): Decision {
   // "done", so the engine always reasons about today's remaining effort.
   const remainingToday = (t: Task) => remainingOn(t, key, loggedTodayIds.has(t.id));
 
-  // Everything already done → nothing to remind about.
-  if (activeToday.every((t) => remainingToday(t) <= 0)) {
+  // Everything already done → nothing to remind about. Completion-based work
+  // counts as outstanding on its own terms (see `isOutstanding`).
+  if (activeToday.every((t) => !isOutstanding(t, key, loggedTodayIds.has(t.id)))) {
     return { shouldNotify: false, reason: "all_done", priority: "low" };
   }
 

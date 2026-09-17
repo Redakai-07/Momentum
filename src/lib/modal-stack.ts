@@ -75,6 +75,17 @@ export function modalStackDepth(): number {
 }
 
 /**
+ * Id of the topmost entry, or null when nothing is stacked.
+ *
+ * Lets an overlay tell whether it is the one the user is actually looking at.
+ * A layered overlay (a full-screen mode opened from inside a sheet) must not
+ * interpret one Escape press as dismissing every layer at once.
+ */
+export function topModalId(): string | null {
+  return stackRef.current[stackRef.current.length - 1]?.id ?? null;
+}
+
+/**
  * Hook that a modal component calls to register/unregister itself.
  */
 export function useModalStack(id: string, label: string, dismiss: () => void, open: boolean) {

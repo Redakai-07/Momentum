@@ -47,6 +47,7 @@ export function TaskFormModal({ open, onClose, task, defaultSection = "daily" }:
       eyebrow={isEdit ? "Edit task" : "New task"}
       title={isEdit ? task?.title : undefined}
       className="sm:max-w-140"
+      stackId={id}
     >
       <TaskFormBody
         key={open ? (task?.id ?? "create") : "closed"}

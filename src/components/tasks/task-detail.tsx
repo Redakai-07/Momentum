@@ -13,6 +13,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/typography";
 import { TimeLogControl } from "./time-log-control";
+import { FocusTimer } from "./focus-timer";
 import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { useStore } from "@/lib/store";
@@ -246,6 +247,7 @@ export function TaskDetailModal({
         onClose={onClose}
         eyebrow={label.title}
         title={task.title}
+        stackId={`modal:task-detail:${taskId}`}
       >
         {task.description && (
           <p className="mt-2 whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground/85">
@@ -264,6 +266,9 @@ export function TaskDetailModal({
         <div className="space-y-3">
           {!accomplished && isTimedTask(task) && <TimeSummary task={task} />}
           <NextActionBlock task={task} />
+          {/* Focus sits above manual logging: it is the way most sessions
+              actually get their minutes, but it never replaces logging. */}
+          {!accomplished && isTimedTask(task) && <FocusTimer task={task} />}
           {!accomplished && showTimeLogControl && isTimedTask(task) && (
             <TimeLogControl task={task} />
           )}

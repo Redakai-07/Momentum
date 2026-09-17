@@ -4,6 +4,7 @@ import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { topModalId } from "@/lib/modal-stack";
 
 let bodyScrollLocks = 0;
 let previousBodyOverflow = "";
@@ -32,6 +33,7 @@ export function Modal({
   children,
   className,
   labelledBy,
+  stackId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -40,6 +42,12 @@ export function Modal({
   children: ReactNode;
   className?: string;
   labelledBy?: string;
+  /**
+   * This modal's entry id in the modal stack (see `useModalStack`). When set,
+   * Escape only closes the modal if it is the topmost layer, so a full-screen
+   * mode opened over it takes the first press on its own.
+   */
+  stackId?: string;
 }) {
   const titleId = useId();
 
@@ -52,13 +60,17 @@ export function Modal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Only the layer the user is looking at responds to Escape.
+      const top = topModalId();
+      if (stackId && top && top !== stackId) return;
+      onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
     };
-  }, [open, onClose]);
+  }, [open, onClose, stackId]);
 
   if (!open || typeof document === "undefined") return null;
 

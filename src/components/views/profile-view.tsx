@@ -6,8 +6,10 @@ import {
   Bell,
   BellRing,
   CheckCircle2,
+  ChevronDown,
   Layers,
   Settings2,
+  Timer,
   UserRound,
 } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
@@ -25,6 +27,7 @@ import {
   type DayRec,
 } from "@/lib/performance";
 import { COOLDOWN_OPTIONS } from "@/lib/config";
+import { FOCUS_LIMITS } from "@/lib/focus";
 import {
   Panel,
   WeeklyRows,
@@ -247,6 +250,181 @@ function PermissionRow() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The plain-English answer to "why haven't I got a reminder?".
+ *
+ * A reminder has two independent halves — deciding one is warranted, and
+ * getting Android to hold the alarm — so both are shown side by side. Without
+ * this, a silent notification pipeline is indistinguishable from a quiet day.
+ */
+function ReminderPipeline() {
+  const decision = useStore((s) => s.notificationDecision);
+  const diagnostics = useStore((s) => s.notificationDiagnostics);
+  const reschedule = useStore((s) => s.rescheduleNotifications);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const fmt = (iso: string | null) =>
+    iso
+      ? new Date(iso).toLocaleString("en-US", {
+          weekday: "short",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : "—";
+
+  const armed = decision?.scheduledId != null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-border px-3 py-2.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-[13px] font-medium text-foreground">
+            Reminder pipeline
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {decision
+              ? decision.eligible
+                ? `Next reminder ${fmt(decision.plannedAt)}${armed ? "" : " · not yet armed"}`
+                : decision.explanation
+              : "Checking…"}
+          </span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+          strokeWidth={1.75}
+        />
+      </button>
+
+      {open && (
+        <dl className="mt-3 space-y-1.5 border-t border-border/70 pt-3 text-xs">
+          {[
+            ["Decision", decision ? (decision.eligible ? "nudge planned" : "no nudge") : "—"],
+            ["Reason", decision?.reason ?? "—"],
+            ["Detail", decision?.explanation ?? "—"],
+            ["Task", decision?.taskTitle ?? "—"],
+            ["Scheduled for", fmt(decision?.plannedAt ?? null)],
+            ["Alarm id", decision?.scheduledId != null ? String(decision.scheduledId) : "not armed"],
+            ["Permission", diagnostics?.permission ?? "—"],
+            ["Channel", diagnostics ? (diagnostics.channelRegistered ? "registered" : "missing") : "—"],
+            ["Held by Android", diagnostics ? String(diagnostics.pendingCount) : "—"],
+            ["Next armed", fmt(decision?.nextPendingAt ?? null)],
+          ].map(([label, value]) => (
+            <div key={label} className="flex items-start justify-between gap-4">
+              <dt className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
+                {label}
+              </dt>
+              <dd className="min-w-0 text-right text-foreground/85">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      <div className="mt-2.5 flex justify-end">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void reschedule().finally(() => setBusy(false));
+          }}
+          className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
+        >
+          {busy ? "Rescheduling…" : "Reschedule now"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Focus-length settings.
+ *
+ * Three numbers is the whole feature — a Pomodoro that needs configuring is a
+ * Pomodoro that does not get started. Values are clamped on save so a stray
+ * digit cannot create an unusable timer.
+ */
+function FocusSettingsRows() {
+  const settings = useStore((s) => s.focusSettings);
+  const setFocusSettings = useStore((s) => s.setFocusSettings);
+
+  const rows = [
+    {
+      key: "focusMinutes" as const,
+      label: "Focus",
+      sub: "Length of one work block.",
+      limit: FOCUS_LIMITS.focusMinutes,
+    },
+    {
+      key: "shortBreakMinutes" as const,
+      label: "Short break",
+      sub: "After each focus block.",
+      limit: FOCUS_LIMITS.shortBreakMinutes,
+    },
+    {
+      key: "longBreakMinutes" as const,
+      label: "Long break",
+      sub: "After a full set of blocks.",
+      limit: FOCUS_LIMITS.longBreakMinutes,
+    },
+  ];
+
+  return (
+    <div className="space-y-2.5 py-2.5">
+      {rows.map((row) => (
+        <div key={row.key} className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-medium text-foreground">{row.label}</p>
+            <p className="text-xs text-muted-foreground">{row.sub}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <input
+              type="number"
+              min={row.limit.min}
+              max={row.limit.max}
+              value={settings[row.key]}
+              onChange={(e) =>
+                setFocusSettings({ [row.key]: Number(e.target.value) })
+              }
+              aria-label={`${row.label} minutes`}
+              className="h-8 w-16 rounded-md border border-input bg-card px-2 text-right font-mono text-[13px] tnum focus:outline-none focus:ring-2 focus:ring-ring/60"
+            />
+            <span className="font-mono text-[11px] text-muted-foreground">min</span>
+          </div>
+        </div>
+      ))}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-medium text-foreground">Long break cadence</p>
+          <p className="text-xs text-muted-foreground">Focus blocks before a long break.</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <input
+            type="number"
+            min={2}
+            max={8}
+            value={settings.sessionsBeforeLongBreak}
+            onChange={(e) =>
+              setFocusSettings({ sessionsBeforeLongBreak: Number(e.target.value) })
+            }
+            aria-label="Focus blocks before a long break"
+            className="h-8 w-16 rounded-md border border-input bg-card px-2 text-right font-mono text-[13px] tnum focus:outline-none focus:ring-2 focus:ring-ring/60"
+          />
+          <span className="font-mono text-[11px] text-muted-foreground">blocks</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -626,10 +804,24 @@ export function ProfileView() {
 
               <PermissionRow />
 
+              <ReminderPipeline />
+
               <p className="py-3 text-xs leading-relaxed text-muted-foreground">
                 <Bell className="mr-1 inline h-3 w-3" />
                 Reminders are scheduled locally on this device and work offline.
               </p>
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <div className="flex items-center gap-2 px-0.5">
+              <Timer className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+              <h2 className="text-sm font-semibold tracking-tight text-foreground">
+                Focus sessions
+              </h2>
+            </div>
+            <div className="surface rounded-2xl px-4">
+              <FocusSettingsRows />
             </div>
           </section>
 

@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
-  ChevronRight,
   CircleCheck,
   Flame,
   Layers,
@@ -29,7 +28,6 @@ import { TaskRow } from "@/components/tasks/task-row";
 import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { TaskFormModal } from "@/components/tasks/task-form";
 import { SpecialTaskBanner } from "@/components/dashboard/special-task-banner";
-import { WorkloadBar } from "@/components/dashboard/workload-bar";
 import { RemindersStrip } from "@/components/dashboard/reminders-strip";
 import type { Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -109,16 +107,18 @@ function TodayHero({
             <span className="text-muted-foreground">,</span> {profileName}
           </h1>
 
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          {/* One quiet meta line rather than a row of decorated pills — the
+              ring beside it already answers how today is going. */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-muted-foreground">
             <StreakPill streak={streak} />
             {planned > 0 && (
-              <span className="flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1 font-mono text-[11px] tnum text-muted-foreground">
+              <span className="flex items-center gap-1.5 font-mono tnum">
                 <Timer className="h-3 w-3" strokeWidth={2} />
                 {formatMinutes(done)} / {formatMinutes(planned)}
               </span>
             )}
             {untimedCount > 0 && (
-              <span className="flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1 font-mono text-[11px] tnum text-muted-foreground">
+              <span className="flex items-center gap-1.5 font-mono tnum">
                 <CircleCheck className="h-3 w-3" strokeWidth={2} />
                 {untimedCount} to-do{untimedCount === 1 ? "" : "s"}
               </span>
@@ -197,6 +197,14 @@ function TodayHero({
           <CircleCheck className="h-4 w-4 shrink-0 text-success" strokeWidth={2} />
           Everything planned for today is done. Nicely held.
         </div>
+      )}
+
+      {/* The remaining-time line lives here rather than in a second progress
+          card: one place should answer "how is today going", not two. */}
+      {!allDone && planned > 0 && remaining > 0 && (
+        <p className="relative mt-3.5 border-t border-border/70 pt-3 font-mono text-[11.5px] tnum text-muted-foreground">
+          {formatMinutes(remaining)} left to reach today&rsquo;s plan
+        </p>
       )}
     </section>
   );
@@ -449,15 +457,6 @@ export function TodayView() {
 
                 <RemindersStrip />
 
-                {/* A day of completion-based tasks only has no minutes to chart. */}
-                {derived.workload.planned > 0 && (
-                  <WorkloadBar
-                    planned={derived.workload.planned}
-                    remaining={derived.workload.remaining}
-                    untimedCount={derived.workload.untimedCount}
-                  />
-                )}
-
                 {derived.breakdown.groups.map((g) => {
                   const isCustom = g.id !== "builtin-daily";
                   const section = isCustom ? sections.find((s) => s.id === g.id) : undefined;
@@ -502,41 +501,41 @@ export function TodayView() {
             </>
           )}
 
-          {/* Other lists — quiet links below the day's work */}
-          <div className="mt-7 space-y-2 border-t border-border/70 pt-4">
-            <Link
-              href="/remainder"
-              className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px] transition-colors hover:bg-muted/40"
-            >
-              <ListChecks className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
-              <span className="flex-1 font-medium text-foreground">Reminder</span>
-              <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
-            </Link>
-            <Link
-              href="/occasional"
-              className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px] transition-colors hover:bg-muted/40"
-            >
-              <Sparkles className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
-              <span className="flex-1 font-medium text-foreground">Occasional</span>
-              <ChevronRight className="h-4 w-4 text-muted-foreground/50" strokeWidth={2} />
-            </Link>
-            {sections.map((section) => (
+          {/*
+           * Other lists — a single row of quiet chips instead of a stack of
+           * full-width rows plus an explainer. The destinations are unchanged;
+           * they simply no longer compete with today's work for attention.
+           */}
+          <div className="mt-7 border-t border-border/70 pt-4">
+            <div className="flex flex-wrap items-center gap-1.5">
               <Link
-                key={section.id}
-                href={`/section?sectionId=${encodeURIComponent(section.id)}`}
-                className="flex items-center gap-3 rounded-lg px-1 py-2 text-[14px] transition-colors hover:bg-muted/40"
+                href="/remainder"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
               >
-                <Layers className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
-                <span className="min-w-0 flex-1 wrap-break-word font-medium text-foreground">
-                  {section.icon ? `${section.icon} ` : ""}
-                  {section.name}
-                </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/50" strokeWidth={2} />
+                <ListChecks className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Reminder
               </Link>
-            ))}
-            <p className="px-1 pt-1 text-xs leading-relaxed text-muted-foreground/80">
-              Reminder holds tasks that need finishing. Occasional is your someday list.
-            </p>
+              <Link
+                href="/occasional"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+              >
+                <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Occasional
+              </Link>
+              {sections.map((section) => (
+                <Link
+                  key={section.id}
+                  href={`/section?sectionId=${encodeURIComponent(section.id)}`}
+                  className="flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                  <span className="min-w-0 truncate">
+                    {section.icon ? `${section.icon} ` : ""}
+                    {section.name}
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
         </>
       )}

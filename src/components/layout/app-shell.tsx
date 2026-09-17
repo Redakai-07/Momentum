@@ -15,6 +15,8 @@ import { dateKey } from "@/lib/date";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { useAndroidBackButton } from "@/lib/modal-stack";
 import { onAppResume } from "@/lib/lifecycle";
+import { FocusBanner } from "@/components/layout/focus-banner";
+import { FocusScreen } from "@/components/focus/focus-screen";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -75,8 +77,11 @@ function ShellInner({ children }: { children: ReactNode }) {
       <DesktopSidebar />
       <div className="flex min-h-dvh flex-col lg:pl-[228px]">
         <main className="w-full flex-1 min-w-0 px-5 pb-28 pt-[calc(max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px))+1.25rem)] sm:px-8 sm:pt-[calc(max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px))+1.75rem)] lg:px-10 lg:pb-16 lg:pt-[calc(max(env(safe-area-inset-top),var(--momentum-safe-area-inset-top,0px))+2rem)]">
+          <FocusBanner />
           {children}
         </main>
+        {/* Focus mode portals over everything, including the navigation. */}
+        <FocusScreen />
         <MobileNav />
       </div>
     </div>

@@ -7,10 +7,27 @@ import { applyRecoveryKinds } from "./activity";
 import { COOLDOWN_OPTIONS, NOTIFICATION_DEFAULTS } from "./config";
 import { planNotifications, notificationMessage } from "./notifications/engine";
 import {
-  shouldNotify,
+  planDayReminder,
   isQuietHours,
+  nextOutsideQuiet,
   type DecisionContext,
 } from "./notifications/decision";
+import {
+  DEFAULT_FOCUS_SETTINGS,
+  advancePhase,
+  clampFocusSettings,
+  focusMinutesWorked,
+  isPhaseComplete,
+  normalizeSession,
+  pauseSession,
+  phaseLabel,
+  remainingMs,
+  resumeSession,
+  startSession,
+  type FocusPhase,
+  type FocusSession,
+  type FocusSettings,
+} from "./focus";
 import {
   checkPermission,
   requestPermission,
@@ -20,6 +37,8 @@ import {
   nativeIdForKey,
   ensureChannel,
   refreshExactAlarmState,
+  scheduleRecords,
+  cancelNative,
   requestExactAlarmAccess as openExactAlarmSettings,
   getNativeDiagnostics,
   sendTestNotification,
@@ -131,6 +150,12 @@ export interface NotificationMeta {
   lastMeaningfulActivityAt?: string;
   lastTaskCompletionAt?: string;
   lastInteractionAt?: string;
+  /**
+   * taskId → ISO of the last reminder sent about it. Lets the engine avoid
+   * pointing two reminders in one day at the same task. Persisted, so the
+   * guard survives restarts instead of resetting on every launch.
+   */
+  lastReminderByTask?: Record<string, string>;
 }
 
 type State = {
@@ -150,12 +175,24 @@ type State = {
   notificationPermission: string;
   /** Development aid: a truthful snapshot of the native notification pipeline. */
   notificationDiagnostics: NativeDiagnostics | null;
+  /** Development aid: why today's task reminder is or is not planned. */
+  notificationDecision: DecisionDiagnostics | null;
   /** Result of the most recent "Test notification" tap. */
   lastTestNotification: TestNotificationResult | null;
   /** Display name shown in the greeting and on the profile (persisted in meta). */
   profileName: string;
   /** When the user last exported a backup (persisted in meta), or null. */
   lastBackupAt: string | null;
+  /** Active Pomodoro session, or null. Rebuilt from timestamps, never a tick count. */
+  focusSession: FocusSession | null;
+  /**
+   * Whether focus mode is occupying the screen. Session *state* is separate:
+   * minimising shows the app while the timer keeps running, so this is UI, not
+   * progress, and deliberately not persisted.
+   */
+  focusScreenOpen: boolean;
+  /** Focus/break lengths — user-configurable, persisted in meta. */
+  focusSettings: FocusSettings;
 };
 
 type Actions = {
@@ -195,6 +232,8 @@ type Actions = {
   testNotification: () => Promise<TestNotificationResult>;
   /** Re-read the native notification pipeline snapshot (diagnostics only). */
   refreshNotificationDiagnostics: () => Promise<void>;
+  /** Rebuild the day's native reminder alarms now (used by the diagnostics panel). */
+  rescheduleNotifications: () => Promise<DecisionDiagnostics | null>;
   /** Open the Android "Alarms & reminders" screen (precision, not required). */
   requestExactAlarmAccess: () => Promise<void>;
   syncNotifications: () => Promise<void>;
@@ -208,6 +247,23 @@ type Actions = {
   refreshNotificationPermission: () => Promise<void>;
   /** Update the display name shown in the greeting and on the profile. */
   setProfileName: (name: string) => void;
+
+  /* Focus (Pomodoro) — an optional way to work a duration-based task. */
+  /** Begin a focus phase for a timed task. No-op for completion-based work. */
+  startFocus: (taskId: string) => void;
+  pauseFocus: () => void;
+  resumeFocus: () => void;
+  /** End the session, banking whatever focus time was actually done. */
+  stopFocus: () => void;
+  /** End the current phase early and move to the next one. */
+  skipFocusPhase: () => void;
+  /** Called by the UI on a display tick; banks and advances a finished phase. */
+  syncFocus: () => void;
+  setFocusSettings: (patch: Partial<FocusSettings>) => void;
+  /** Take over the screen with the running session. */
+  openFocusScreen: () => void;
+  /** Step back to the app; the session keeps running in the banner. */
+  minimizeFocusScreen: () => void;
 };
 
 export interface MomentumState extends State, Actions {}
@@ -257,14 +313,26 @@ async function writeMetaValue(key: string, value: unknown): Promise<void> {
 }
 
 async function readNotificationMeta(): Promise<NotificationMeta> {
-  const [lastNotificationAt, lastMeaningfulActivityAt, lastTaskCompletionAt, lastInteractionAt] =
-    await Promise.all([
-      readMetaValue<string>("lastNotificationAt"),
-      readMetaValue<string>("lastMeaningfulActivityAt"),
-      readMetaValue<string>("lastTaskCompletionAt"),
-      readMetaValue<string>("lastInteractionAt"),
-    ]);
-  return { lastNotificationAt, lastMeaningfulActivityAt, lastTaskCompletionAt, lastInteractionAt };
+  const [
+    lastNotificationAt,
+    lastMeaningfulActivityAt,
+    lastTaskCompletionAt,
+    lastInteractionAt,
+    lastReminderByTask,
+  ] = await Promise.all([
+    readMetaValue<string>("lastNotificationAt"),
+    readMetaValue<string>("lastMeaningfulActivityAt"),
+    readMetaValue<string>("lastTaskCompletionAt"),
+    readMetaValue<string>("lastInteractionAt"),
+    readMetaValue<Record<string, string>>("lastReminderByTask"),
+  ]);
+  return {
+    lastNotificationAt,
+    lastMeaningfulActivityAt,
+    lastTaskCompletionAt,
+    lastInteractionAt,
+    lastReminderByTask,
+  };
 }
 
 /** Real date the user first opened the app (persisted once, on first boot). */
@@ -370,33 +438,53 @@ function minutesSince(iso: string | null | undefined, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - ms) / 60_000));
 }
 
+/** Persisted anchor for today's ordinary nudge, so it cannot drift. */
+interface OrdinaryPlan {
+  date: string;
+  at: string;
+}
+
+/** Catch-up lead: a cue whose moment already passed fires this much later. */
+const CATCHUP_LEAD_MINUTES = 15;
+
 /**
- * Earliest sensible delivery time for an ordinary reminder: at least
- * 30 minutes out, past the global cooldown, and outside quiet hours.
+ * Earliest moment a *missed* cue may still be delivered, or null when the day
+ * has no non-quiet time left. Without this, a cue whose scheduled time had
+ * already passed when the app was next opened (the common case — a due-today
+ * task seen at 15:00, an alarm that fired while the app was closed) was simply
+ * dropped and never reached the user.
  */
-function nextOrdinarySlot(
-  now: Date,
-  settings: NotificationSettings,
-  lastNotificationAt?: string,
-): Date | null {
-  let t = new Date(now.getTime() + 30 * 60_000);
-  const cooldownEnd = lastNotificationAt
-    ? new Date(new Date(lastNotificationAt).getTime() + settings.cooldownMinutes * 60_000)
-    : null;
-  if (cooldownEnd && t.getTime() < cooldownEnd.getTime()) t = cooldownEnd;
-  for (let i = 0; i < 24 * 4; i++) {
-    if (!isQuietHours(t, settings)) return t;
-    t = new Date(t.getTime() + 15 * 60_000);
-  }
-  return null;
+function catchupSlot(now: Date, settings: NotificationSettings): Date | null {
+  const today = dateKey(now);
+  const slot = nextOutsideQuiet(
+    settings,
+    new Date(now.getTime() + CATCHUP_LEAD_MINUTES * 60_000),
+  );
+  return dateKey(slot) === today ? slot : null;
+}
+
+interface BuiltSchedule {
+  records: NativeNotifRecord[];
+  /** Stable fire time for today's ordinary nudge (null when none today). */
+  ordinaryAt: Date | null;
 }
 
 /**
  * Build the native schedule: per-task cues from the in-app queue (filtered
- * through quiet hours + completion cooldown) plus one possible ordinary
- * drift reminder chosen by the decision engine. Deterministic + deduped.
+ * through quiet hours + completion cooldown) plus the day's ordinary nudge.
+ * Deterministic + deduped.
+ *
+ * Every record here is a real `AlarmManager` alarm, so delivery does not
+ * depend on the WebView staying alive — that is the whole point. The day
+ * planner (`planDayReminder`) decides *whether* today deserves a nudge and
+ * from when; `storedOrdinary` keeps that moment fixed across syncs so it
+ * cannot slide forward on every app open.
  */
-function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
+function buildNativeSchedule(
+  get: GetFn,
+  now: Date,
+  storedOrdinary: OrdinaryPlan | null,
+): BuiltSchedule {
   const s = get();
   const settings = s.notificationSettings;
   const today = dateKey(now);
@@ -428,14 +516,23 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
   }
 
   for (const item of candidates.values()) {
-    const fireAt = new Date(
+    let fireAt = new Date(
       item.status === "snoozed" && item.snoozedUntil ? item.snoozedUntil : item.scheduledAt,
     );
-    if (fireAt.getTime() <= now.getTime()) continue;
 
     const task = s.tasks.find((t) => t.id === item.taskId);
     if (!task || task.status !== "active") continue;
     if (isTaskDoneOn(task, today)) continue;
+
+    // The moment already passed while the app was closed (or the cue belongs to
+    // an earlier slot today). Still-valid work is re-armed for later today
+    // instead of being silently dropped — that drop was why nothing arrived.
+    if (fireAt.getTime() <= now.getTime()) {
+      if (item.date !== today) continue;
+      const slot = catchupSlot(now, settings);
+      if (!slot) continue;
+      fireAt = slot;
+    }
 
     // Ordinary reminders: quiet hours + breathing room after activity.
     if (isOrdinaryType(item.type)) {
@@ -463,32 +560,55 @@ function buildNativeSchedule(get: GetFn, now: Date): NativeNotifRecord[] {
     });
   }
 
-  // Ordinary drift reminder — the decision engine decides, deduped per day.
+  /* Day-level ordinary nudge. */
+  // The planner answers "does today deserve a reminder, and from when?" — a
+  // question whose answer does not depend on whether the app happens to be open
+  // at this instant (see planDayReminder for why that distinction mattered).
   const decisionCtx: DecisionContext = {
     now,
     tasks: s.tasks,
     logs: s.logs,
+    sections: s.sections,
     settings,
     lastNotificationAt: s.notificationMeta.lastNotificationAt,
     lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
     lastTaskCompletionAt: s.notificationMeta.lastTaskCompletionAt,
     lastInteractionAt: s.notificationMeta.lastInteractionAt,
+    lastReminderByTask: s.notificationMeta.lastReminderByTask,
   };
-  const decision = shouldNotify(decisionCtx);
-  if (decision.shouldNotify && decision.priority !== "high") {
-    const at = nextOrdinarySlot(now, settings, s.notificationMeta.lastNotificationAt);
-    if (at && at.getTime() > now.getTime()) {
+  const plan = planDayReminder(decisionCtx);
+
+  let ordinaryAt: Date | null = null;
+  // Priority deliberately does not gate this. An overdue or due-today task is
+  // exactly the case that must still reach the user when the app is closed, and
+  // the in-app queue cannot cover it: its cue is stamped "delivered" the moment
+  // its time has passed while the app is open, so it is no longer a native
+  // candidate. The day plan is the one alarm per day that always gets armed.
+  if (plan.eligible && plan.earliest && plan.task) {
+    // Keep the previously agreed moment so it stays put across syncs, but move
+    // it forward when reality (new activity, a delivered notification) has
+    // invalidated it. A plan from another day is simply stale.
+    const stored = storedOrdinary?.date === today ? new Date(storedOrdinary.at) : null;
+    const storedValid = stored && Number.isFinite(stored.getTime()) ? stored : null;
+    ordinaryAt =
+      storedValid && storedValid.getTime() > plan.earliest.getTime()
+        ? storedValid
+        : plan.earliest;
+
+    if (ordinaryAt.getTime() > now.getTime() && !isQuietHours(ordinaryAt, settings)) {
       records.push({
         id: nativeIdForKey(`ordinary:${today}`),
         key: `ordinary:${today}`,
-        title: "Momentum",
-        body: decision.message ?? "You still have planned work waiting.",
-        at,
+        title: plan.task.title,
+        body: plan.message ?? "You still have planned work waiting.",
+        at: ordinaryAt,
       });
+    } else {
+      ordinaryAt = null;
     }
   }
 
-  return records.sort((a, b) => a.at.getTime() - b.at.getTime());
+  return { records: records.sort((a, b) => a.at.getTime() - b.at.getTime()), ordinaryAt };
 }
 
 const devLog = (msg: string, data?: unknown) => {
@@ -496,6 +616,177 @@ const devLog = (msg: string, data?: unknown) => {
     console.debug(`[notifications] ${msg}`, data ?? "");
   }
 };
+
+/* ------------------------------------------------------------------ */
+/* Focus (Pomodoro) helpers                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Credit finished focus time to the task.
+ *
+ * Routed through the ordinary `logTime` action on purpose: a Pomodoro is a way
+ * of working on a task, not a parallel accounting system, so the minutes land
+ * in the same `logs` table and flow into performance, streaks and remaining
+ * time exactly like hand-logged time.
+ */
+function bankFocusTime(
+  get: GetFn,
+  session: FocusSession,
+  settings: FocusSettings,
+  now: number,
+): void {
+  const minutes = focusMinutesWorked(session, settings, now);
+  if (minutes <= 0) return;
+  devLog("focus banked", { taskId: session.taskId, minutes, date: session.date });
+  // Logged against the day the work actually happened, so a session that ran
+  // past midnight does not credit yesterday's effort to today.
+  get().logTime(session.taskId, minutes, session.date);
+}
+
+/** Stable alarm id per session + phase, so re-arming never stacks alarms. */
+function focusAlarmId(session: FocusSession): number {
+  return nativeIdForKey(`focus:${session.id}:${session.phase}`);
+}
+
+/**
+ * Hand the phase's end to Android.
+ *
+ * This is the reason the timer survives the screen locking: the transition is
+ * an `AlarmManager` alarm, not a JavaScript timer, so it fires even if the
+ * WebView has been suspended for the whole phase.
+ */
+async function armFocusAlarm(session: FocusSession, settings: FocusSettings): Promise<void> {
+  if (!nativeAvailable() || session.status !== "running") return;
+  const remaining = remainingMs(session, settings);
+  const at = new Date(Date.now() + remaining);
+  if (at.getTime() <= Date.now() + 1000) return;
+  await ensureChannel();
+  await scheduleRecords([
+    {
+      id: focusAlarmId(session),
+      key: `focus:${session.id}:${session.phase}`,
+      title: session.phase === "focus" ? "Focus complete" : "Break over",
+      body:
+        session.phase === "focus"
+          ? "Nice work. Step away for a moment."
+          : "Ready for the next focus session?",
+      at,
+    },
+  ]);
+}
+
+/**
+ * End any session belonging to `taskId`, banking its focus time first.
+ *
+ * Used when the task is completed or deleted out from under a running timer:
+ * the session must not outlive its task, and the minutes already spent are
+ * still the user's.
+ */
+function endFocusForTask(get: GetFn, set: SetFn, taskId: string): void {
+  const s = get();
+  const session = s.focusSession;
+  if (!session || session.taskId !== taskId) return;
+  bankFocusTime(get, session, s.focusSettings, Date.now());
+  void disarmFocusAlarm(session);
+  void writeMetaValue("focusSession", null);
+  set({ focusSession: null, focusScreenOpen: false });
+}
+
+async function disarmFocusAlarm(session: FocusSession): Promise<void> {
+  if (!nativeAvailable()) return;
+  await cancelNative([focusAlarmId(session)]);
+}
+
+/**
+ * Tell the user a phase ended.
+ *
+ * On a native platform Android's own alarm is the delivery mechanism, so this
+ * only fills the gap on the web build — announcing it twice would be noise.
+ */
+function showFocusTransition(finished: FocusPhase, next: FocusPhase): void {
+  if (nativeAvailable()) return;
+  const title = finished === "focus" ? "Focus complete" : "Break over";
+  const body =
+    finished === "focus"
+      ? `${phaseLabel(next)} — step away for a moment.`
+      : `${phaseLabel(next)} — ready when you are.`;
+  void showWebNotification(title, { body });
+}
+
+/** Plain-English answer to "why did (or didn't) today get a reminder?". */
+export interface DecisionDiagnostics {
+  eligible: boolean;
+  reason: string;
+  explanation: string;
+  /** Task the nudge would point at, when there is one. */
+  taskTitle: string | null;
+  /** When today's nudge is set to fire, or null when none is planned. */
+  plannedAt: string | null;
+  /** Stable alarm id for the planned nudge — the id Android holds. */
+  scheduledId: number | null;
+  pendingNativeCount: number;
+  nextPendingAt: string | null;
+}
+
+const REASON_COPY: Record<string, string> = {
+  notifications_disabled: "Task reminders are switched off for this app.",
+  no_tasks: "Nothing is scheduled for today.",
+  all_done: "Everything planned for today is done.",
+  no_next_step: "There is no open task worth a nudge.",
+  already_notified: "This task was already reminded about today.",
+  quiet_hours: "Quiet hours leave no room left today.",
+  normal_remaining: "Planned work is still outstanding.",
+  next_action: "An open task carries a next action.",
+  overdue_task: "A task is overdue.",
+  special_task: "A task is due today.",
+  high_duration: "A large task is still outstanding.",
+  global_cooldown: "Waiting out the notification cooldown.",
+  recent_activity: "Backing off after recent activity.",
+  no_gap_yet: "Waiting for enough of a gap since the last activity.",
+};
+
+/**
+ * Describe the day's notification plan from the live state.
+ *
+ * It deliberately recomputes the plan (rather than reading the persisted one)
+ * so the report stays truthful even before the next sync runs.
+ */
+function describeDayPlan(
+  s: MomentumState,
+  native: NativeDiagnostics,
+): DecisionDiagnostics {
+  const now = new Date();
+  const plan = planDayReminder({
+    now,
+    tasks: s.tasks,
+    logs: s.logs,
+    sections: s.sections,
+    settings: s.notificationSettings,
+    lastNotificationAt: s.notificationMeta.lastNotificationAt,
+    lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
+    lastTaskCompletionAt: s.notificationMeta.lastTaskCompletionAt,
+    lastInteractionAt: s.notificationMeta.lastInteractionAt,
+    lastReminderByTask: s.notificationMeta.lastReminderByTask,
+  });
+
+  const pending = [...native.pending]
+    .filter((p) => p.at)
+    .sort((a, b) => (a.at! < b.at! ? -1 : 1));
+  const scheduled = plan.eligible && plan.earliest
+    ? nativeIdForKey(`ordinary:${dateKey(now)}`)
+    : null;
+
+  return {
+    eligible: plan.eligible,
+    reason: plan.reason,
+    explanation: REASON_COPY[plan.reason] ?? plan.reason,
+    taskTitle: plan.task?.title ?? null,
+    plannedAt: plan.earliest ? plan.earliest.toISOString() : null,
+    scheduledId: scheduled,
+    pendingNativeCount: native.pendingCount,
+    nextPendingAt: pending[0]?.at ?? null,
+  };
+}
 
 /**
  * Trigger a one-time welcome notification as soon as the user grants notification permissions.
@@ -581,6 +872,15 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   const storedName = await readMetaValue<string>("profileName");
   const storedBackupAt = await readMetaValue<string>("lastBackupAt");
 
+  // Focus state lives in meta (no schema change) and is repaired against the
+  // wall clock on load, so a session interrupted by a process kill or a reboot
+  // resumes with the right amount of time left instead of a frozen counter.
+  const storedFocus = await readMetaValue<FocusSession>("focusSession");
+  const focusSession = normalizeSession(storedFocus);
+  const focusSettings = clampFocusSettings(
+    await readMetaValue<Partial<FocusSettings>>("focusSettings"),
+  );
+
   // Never trust a cached permission: the user may have revoked notifications
   // from Android settings since the last launch. Re-check on every boot.
   if (nativeAvailable()) {
@@ -605,7 +905,21 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
     notificationPermission: storedPermission ?? (nativeAvailable() ? "prompt" : "granted"),
     profileName: storedName ?? DEFAULT_PROFILE_NAME,
     lastBackupAt: typeof storedBackupAt === "string" ? storedBackupAt : null,
+    focusSession,
+    focusSettings,
   });
+
+  // An interrupted session is re-armed against the clock (and re-scheduled with
+  // Android if it is still running), so the alarm can never be left behind.
+  if (focusSession) {
+    if (focusSession.date !== today || isPhaseComplete(focusSession, focusSettings)) {
+      // Settle it now: either its clock already ran out while the app was
+      // closed, or it belongs to an earlier day and must not keep running.
+      void get().syncFocus();
+    } else if (focusSession.status === "running") {
+      void armFocusAlarm(focusSession, focusSettings);
+    }
+  }
 
   // App opened = the user interacted. Feed the drift math.
   const now = new Date();
@@ -688,7 +1002,11 @@ export const useStore = create<MomentumState>()((set, get) => ({
   notificationMeta: {},
   notificationPermission: "prompt",
   notificationDiagnostics: null,
+  notificationDecision: null,
   lastTestNotification: null,
+  focusSession: null,
+  focusScreenOpen: false,
+  focusSettings: DEFAULT_FOCUS_SETTINGS,
   profileName: DEFAULT_PROFILE_NAME,
   lastBackupAt: null,
 
@@ -829,6 +1147,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
   },
 
   deleteTask: (id) => {
+    endFocusForTask(get, set, id);
     set((s) => ({
       tasks: s.tasks.filter((t) => t.id !== id),
       logs: s.logs.filter((l) => l.taskId !== id),
@@ -862,6 +1181,10 @@ export const useStore = create<MomentumState>()((set, get) => ({
           completedAt: undefined,
           remainingMinutes: plannedMinutesOf(task),
         };
+
+    // Completing the task ends any focus session on it. Banked first, so the
+    // minutes worked are never thrown away with the session.
+    if (done) endFocusForTask(get, set, id);
 
     set((s) => ({ tasks: s.tasks.map((t) => (t.id === id ? next : t)) }));
     if (done) {
@@ -1252,16 +1575,30 @@ export const useStore = create<MomentumState>()((set, get) => ({
       logError("sync notifications")(err);
     }
 
+    // Everything that just crossed into "delivered" — used both to record the
+    // per-task dedupe stamp and to post web notifications.
+    const newlyDelivered = [
+      ...updates.filter(
+        (u) =>
+          u.status === "delivered" &&
+          s.notifications.find((x) => x.id === u.id)?.status !== "delivered",
+      ),
+      ...stamped.filter((d) => d.status === "delivered"),
+    ];
+
+    // Remember what the user was just told about, so one task never attracts
+    // two reminders on the same day. Persisted, so it survives a restart.
+    if (newlyDelivered.length > 0) {
+      const iso = new Date().toISOString();
+      const byTask = { ...(s.notificationMeta.lastReminderByTask ?? {}) };
+      for (const n of newlyDelivered) byTask[n.taskId] = iso;
+      const meta = { ...get().notificationMeta, lastReminderByTask: byTask };
+      void writeMetaValue("lastReminderByTask", byTask);
+      set({ notificationMeta: meta });
+    }
+
     // On web environments, show external browser notifications for newly delivered cues
     if (!nativeAvailable()) {
-      const newlyDelivered = [
-        ...updates.filter(
-          (u) =>
-            u.status === "delivered" &&
-            s.notifications.find((x) => x.id === u.id)?.status === "scheduled",
-        ),
-        ...stamped.filter((d) => d.status === "delivered"),
-      ];
       for (const n of newlyDelivered) {
         const task = s.tasks.find((t) => t.id === n.taskId);
         if (task) {
@@ -1300,8 +1637,22 @@ export const useStore = create<MomentumState>()((set, get) => ({
       return;
     }
 
-    const schedule = buildNativeSchedule(get, now);
-    const nextRecords = schedule.slice(0, 12); // keep the meaningful few
+    const storedOrdinary =
+      (await readMetaValue<OrdinaryPlan>("ordinaryReminderPlan")) ?? null;
+    const { records, ordinaryAt } = buildNativeSchedule(get, now, storedOrdinary);
+    const nextRecords = records.slice(0, 12); // keep the meaningful few
+
+    // Anchor today's nudge so it fires at the same moment no matter how often
+    // the app is opened. This is what turns "the app happened to be open" into
+    // "Android will wake up and tell the user".
+    if (ordinaryAt) {
+      const plan: OrdinaryPlan = { date: dateKey(now), at: ordinaryAt.toISOString() };
+      if (storedOrdinary?.date !== plan.date || storedOrdinary?.at !== plan.at) {
+        await writeMetaValue("ordinaryReminderPlan", plan);
+      }
+    } else if (storedOrdinary && storedOrdinary.date !== dateKey(now)) {
+      await writeMetaValue("ordinaryReminderPlan", null);
+    }
 
     const tracked =
       (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
@@ -1375,6 +1726,122 @@ export const useStore = create<MomentumState>()((set, get) => ({
       .catch(logError("save notification settings"));
   },
 
+  /* ------------------------------- Focus ------------------------------ */
+
+  startFocus: (taskId) => {
+    const s = get();
+    const task = s.tasks.find((t) => t.id === taskId);
+    // Pomodoro is a way of working on *timed* tasks. Completion-based work has
+    // no minutes to fill, so it stays a simple pending → done toggle.
+    if (!task || !isTimedTask(task) || isTaskDone(task)) return;
+    const now = Date.now();
+    const session = startSession(taskId, now, uid());
+    void writeMetaValue("focusSession", session);
+    // Starting a block takes over the screen: a Pomodoro is a mode, not a widget.
+    set({ focusSession: session, focusScreenOpen: true });
+    void armFocusAlarm(session, s.focusSettings);
+    devLog("focus started", { taskId, phase: session.phase });
+  },
+
+  pauseFocus: () => {
+    const session = get().focusSession;
+    if (!session || session.status === "paused") return;
+    const next = pauseSession(session, Date.now());
+    void writeMetaValue("focusSession", next);
+    set({ focusSession: next });
+    // A held clock must not fire a "focus finished" alarm.
+    void disarmFocusAlarm(session);
+  },
+
+  resumeFocus: () => {
+    const s = get();
+    const session = s.focusSession;
+    if (!session || session.status === "running") return;
+    const next = resumeSession(session, Date.now());
+    void writeMetaValue("focusSession", next);
+    set({ focusSession: next });
+    void armFocusAlarm(next, s.focusSettings);
+  },
+
+  stopFocus: () => {
+    const s = get();
+    const session = s.focusSession;
+    if (!session) return;
+    const now = Date.now();
+    // Bank the work before tearing the session down — stopping early must
+    // never throw away minutes the user actually spent.
+    bankFocusTime(get, session, s.focusSettings, now);
+    void disarmFocusAlarm(session);
+    void writeMetaValue("focusSession", null);
+    set({ focusSession: null, focusScreenOpen: false });
+    devLog("focus stopped");
+  },
+
+  skipFocusPhase: () => {
+    const s = get();
+    const session = s.focusSession;
+    if (!session) return;
+    const now = Date.now();
+    bankFocusTime(get, session, s.focusSettings, now);
+    void disarmFocusAlarm(session);
+    const next = advancePhase({ ...session, status: "running" }, s.focusSettings, now);
+    void writeMetaValue("focusSession", next);
+    set({ focusSession: next });
+    void armFocusAlarm(next, s.focusSettings);
+  },
+
+  /**
+   * Reconcile the session with the wall clock.
+   *
+   * The UI calls this on a display tick, but correctness does not depend on
+   * that cadence: a phase that finished while the app was suspended is banked
+   * and advanced the first time this runs afterwards.
+   */
+  syncFocus: () => {
+    const s = get();
+    const session = s.focusSession;
+    if (!session) return;
+    const now = Date.now();
+    // A session dated yesterday is stale — it must not silently keep running.
+    if (session.date !== todayKey()) {
+      // Crossed midnight. Bank the work against the day it happened and end the
+      // session — silently carrying it into a new day would inflate the wrong
+      // day's performance and confuse the block count.
+      bankFocusTime(get, session, s.focusSettings, now);
+      void disarmFocusAlarm(session);
+      void writeMetaValue("focusSession", null);
+      set({ focusSession: null, focusScreenOpen: false });
+      devLog("focus session ended at day boundary", { date: session.date });
+      return;
+    }
+    if (session.status !== "running") return;
+    if (!isPhaseComplete(session, s.focusSettings, now)) return;
+
+    const finished = session.phase;
+    bankFocusTime(get, session, s.focusSettings, now);
+    void disarmFocusAlarm(session);
+    // Advance past the completed phase — both focus and breaks roll forward, so
+    // a finished break drops the user back into a fresh focus phase.
+    const next = advancePhase(session, s.focusSettings, now);
+    void writeMetaValue("focusSession", next);
+    set({ focusSession: next });
+    void armFocusAlarm(next, s.focusSettings);
+    void showFocusTransition(finished, next.phase);
+  },
+
+  setFocusSettings: (patch) => {
+    const next = clampFocusSettings({ ...get().focusSettings, ...patch });
+    void writeMetaValue("focusSettings", next);
+    set({ focusSettings: next });
+  },
+
+  openFocusScreen: () => {
+    if (!get().focusSession) return;
+    set({ focusScreenOpen: true });
+  },
+
+  minimizeFocusScreen: () => set({ focusScreenOpen: false }),
+
   markInteraction: () => {
     const now = new Date();
     const last = get().notificationMeta.lastInteractionAt;
@@ -1417,7 +1884,11 @@ export const useStore = create<MomentumState>()((set, get) => ({
 
   /**
    * Snapshot the native pipeline: permission, channel, exact-alarm access and
-   * what Android actually has queued. Diagnostics only — never a gate.
+   * what Android actually has queued, plus the *decision* behind the day's
+   * nudge. Diagnostics only — never a gate.
+   *
+   * This exists so "why did I not get a notification?" has an answer that is
+   * read rather than guessed at.
    */
   refreshNotificationDiagnostics: async () => {
     const diagnostics = await getNativeDiagnostics();
@@ -1426,6 +1897,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
       set({ notificationPermission: diagnostics.permission });
       await writeMetaValue("notificationPermissionState", diagnostics.permission);
     }
+    set({ notificationDecision: describeDayPlan(get(), diagnostics) });
   },
 
   requestExactAlarmAccess: async () => {
@@ -1433,6 +1905,20 @@ export const useStore = create<MomentumState>()((set, get) => ({
     await get().refreshNotificationDiagnostics();
     // Precision changed, so the pending alarms are rebuilt with the new mode.
     await get().syncNativeNotifications();
+  },
+
+  /**
+   * Force a rebuild of the native alarm queue and report the outcome.
+   *
+   * Android\u2019s queue is the thing that actually wakes the device, so being
+   * able to say "here is what is armed, and why" is the difference between
+   * debugging notifications and guessing at them.
+   */
+  rescheduleNotifications: async () => {
+    await get().syncNotifications();
+    await get().syncNativeNotifications();
+    await get().refreshNotificationDiagnostics();
+    return get().notificationDecision;
   },
 
   refreshNotificationPermission: async () => {
