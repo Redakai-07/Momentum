@@ -89,6 +89,7 @@ describe("planDayReminder — planning a whole day, not a single moment", () => 
     expect(plan.eligible).toBe(true);
     expect(plan.task?.id).toBe("dsa");
     expect(plan.reason).toBe("normal_remaining");
+    expect(plan.message).toContain("Keep your streak alive");
   });
 
   it("3. no tasks at all → nothing planned", () => {

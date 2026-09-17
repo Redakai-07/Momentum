@@ -325,8 +325,8 @@ export function planDayReminder(ctx: DecisionContext): DayPlan {
   const message = target.nextAction
     ? `Next: ${target.nextAction}`
     : state.critical
-      ? `${target.title} is still waiting.`
-      : target.title;
+      ? `Keep your streak alive — ${target.title} is still waiting.`
+      : `Keep your streak alive — ${target.title} is ready when you are.`;
 
   return {
     eligible: true,

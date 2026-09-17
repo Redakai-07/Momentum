@@ -6,7 +6,6 @@ import {
   Bell,
   BellRing,
   CheckCircle2,
-  ChevronDown,
   Layers,
   Settings2,
   UserRound,
@@ -89,8 +88,8 @@ function ToggleRow({
       >
         <span
           className={cn(
-            "absolute top-0.5 h-4 w-4 rounded-full bg-card shadow-soft transition-transform",
-            checked ? "translate-x-4.5" : "translate-x-0.5",
+            "absolute left-0 top-0.5 h-4 w-4 rounded-full bg-card shadow-soft transition-transform",
+            checked ? "translate-x-4" : "translate-x-0.5",
           )}
         />
       </button>
@@ -209,8 +208,8 @@ function PermissionRow() {
         >
           <span
             className={cn(
-              "absolute top-0.5 h-4 w-4 rounded-full bg-card shadow-soft transition-transform",
-              systemEnabled ? "translate-x-4.5" : "translate-x-0.5",
+              "absolute left-0 top-0.5 h-4 w-4 rounded-full bg-card shadow-soft transition-transform",
+              systemEnabled ? "translate-x-4" : "translate-x-0.5",
             )}
           />
         </button>
@@ -259,94 +258,6 @@ function PermissionRow() {
  * getting Android to hold the alarm — so both are shown side by side. Without
  * this, a silent notification pipeline is indistinguishable from a quiet day.
  */
-function ReminderPipeline() {
-  const decision = useStore((s) => s.notificationDecision);
-  const diagnostics = useStore((s) => s.notificationDiagnostics);
-  const reschedule = useStore((s) => s.rescheduleNotifications);
-  const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(false);
-
-  const fmt = (iso: string | null) =>
-    iso
-      ? new Date(iso).toLocaleString("en-US", {
-          weekday: "short",
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      : "—";
-
-  const armed = decision?.scheduledId != null;
-
-  return (
-    <div className="mt-3 rounded-lg border border-border px-3 py-2.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 text-left"
-      >
-        <span className="min-w-0">
-          <span className="block text-[13px] font-medium text-foreground">
-            Reminder pipeline
-          </span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {decision
-              ? decision.eligible
-                ? `Next reminder ${fmt(decision.plannedAt)}${armed ? "" : " · not yet armed"}`
-                : decision.explanation
-              : "Checking…"}
-          </span>
-        </span>
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-          strokeWidth={1.75}
-        />
-      </button>
-
-      {open && (
-        <dl className="mt-3 space-y-1.5 border-t border-border/70 pt-3 text-xs">
-          {[
-            ["Decision", decision ? (decision.eligible ? "nudge planned" : "no nudge") : "—"],
-            ["Reason", decision?.reason ?? "—"],
-            ["Detail", decision?.explanation ?? "—"],
-            ["Task", decision?.taskTitle ?? "—"],
-            ["Scheduled for", fmt(decision?.plannedAt ?? null)],
-            ["Alarm id", decision?.scheduledId != null ? String(decision.scheduledId) : "not armed"],
-            ["Permission", diagnostics?.permission ?? "—"],
-            ["Channel", diagnostics ? (diagnostics.channelRegistered ? "registered" : "missing") : "—"],
-            ["Held by Android", diagnostics ? String(diagnostics.pendingCount) : "—"],
-            ["Next armed", fmt(decision?.nextPendingAt ?? null)],
-          ].map(([label, value]) => (
-            <div key={label} className="flex items-start justify-between gap-4">
-              <dt className="shrink-0 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
-                {label}
-              </dt>
-              <dd className="min-w-0 text-right text-foreground/85">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      <div className="mt-2.5 flex justify-end">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            void reschedule().finally(() => setBusy(false));
-          }}
-          className="rounded-md border border-input px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:opacity-50"
-        >
-          {busy ? "Rescheduling…" : "Reschedule now"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /**
  * Focus-length settings.
  *
@@ -728,8 +639,6 @@ export function ProfileView() {
               </div>
 
               <PermissionRow />
-
-              <ReminderPipeline />
 
               <p className="py-3 text-xs leading-relaxed text-muted-foreground">
                 <Bell className="mr-1 inline h-3 w-3" />

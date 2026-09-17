@@ -1868,6 +1868,10 @@ export const useStore = create<MomentumState>()((set, get) => ({
     await writeMetaValue("notificationPermissionState", permission);
     set({ notificationPermission: permission });
     if (permission === "granted") {
+      // Rebuild the task queue before arming native alarms. This matters when
+      // permission is granted for the first time: assigned tasks may not have
+      // existed in the queue when boot initially ran without permission.
+      await get().syncNotifications();
       await get().syncNativeNotifications();
       void triggerWelcomeNotificationOnce();
     }
@@ -1938,6 +1942,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
     await writeMetaValue("notificationPermissionState", permission);
     set({ notificationPermission: permission });
     if (permission === "granted") {
+      await get().syncNotifications();
       await get().syncNativeNotifications();
       void triggerWelcomeNotificationOnce();
     }
