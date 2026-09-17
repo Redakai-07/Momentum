@@ -13,6 +13,7 @@ import {
   phaseLabel,
   remainingMs,
   resumeSession,
+  shortBreakMinutesFor,
   startSession,
   targetMs,
   type FocusSettings,
@@ -229,6 +230,14 @@ describe("focus cycle", () => {
   it("21. target lengths follow the settings", () => {
     expect(targetMs("focus", { ...S, focusMinutes: 50 })).toBe(50 * MIN);
     expect(targetMs("long_break", { ...S, longBreakMinutes: 20 })).toBe(20 * MIN);
+  });
+
+  it("22. short breaks scale with focus time and cap at five minutes", () => {
+    expect(shortBreakMinutesFor(1)).toBe(1);
+    expect(shortBreakMinutesFor(5)).toBe(1);
+    expect(shortBreakMinutesFor(25)).toBe(5);
+    expect(shortBreakMinutesFor(50)).toBe(5);
+    expect(targetMs("short_break", { ...S, focusMinutes: 1 })).toBe(1 * MIN);
   });
 });
 

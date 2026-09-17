@@ -29,6 +29,7 @@ import {
   type FocusSettings,
 } from "./focus";
 import { remainingMinutesOf } from "./duration";
+import { playFocusTransitionSound, primeFocusSound } from "./focus-sound";
 import {
   checkPermission,
   requestPermission,
@@ -705,6 +706,9 @@ async function disarmFocusAlarm(session: FocusSession): Promise<void> {
  * only fills the gap on the web build — announcing it twice would be noise.
  */
 function showFocusTransition(finished: FocusPhase, next: FocusPhase): void {
+  if (finished === "focus" || next === "focus") {
+    playFocusTransitionSound(next);
+  }
   if (nativeAvailable()) return;
   const title = finished === "focus" ? "Focus complete" : "Break over";
   const body =
@@ -1744,6 +1748,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
       : Math.max(1, Math.min(120, Math.round(focusMinutes)));
     const blocksInSession = Math.max(1, Math.ceil(remainingMinutesOf(task) / selectedMinutes));
     const session = startSession(taskId, now, uid(), selectedMinutes, blocksInSession);
+    primeFocusSound();
     void writeMetaValue("focusSession", session);
     // Starting a block takes over the screen: a Pomodoro is a mode, not a widget.
     set({ focusSession: session, focusScreenOpen: true });

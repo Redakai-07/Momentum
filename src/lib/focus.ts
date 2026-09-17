@@ -47,6 +47,11 @@ export const FOCUS_LIMITS = {
   longBreakMinutes: { min: 5, max: 60 },
 } as const;
 
+/** Keep short breaks proportional to the focus block without letting them grow too long. */
+export function shortBreakMinutesFor(focusMinutes: number): number {
+  return Math.min(5, Math.max(1, Math.ceil(focusMinutes / 5)));
+}
+
 export interface FocusSession {
   id: string;
   taskId: string;
@@ -105,7 +110,7 @@ export function clampFocusSettings(s: Partial<FocusSettings> | null | undefined)
 /** How long the given phase runs for, in ms. */
 export function targetMs(phase: FocusPhase, settings: FocusSettings): number {
   if (phase === "focus") return settings.focusMinutes * MIN;
-  if (phase === "short_break") return settings.shortBreakMinutes * MIN;
+  if (phase === "short_break") return shortBreakMinutesFor(settings.focusMinutes) * MIN;
   return settings.longBreakMinutes * MIN;
 }
 

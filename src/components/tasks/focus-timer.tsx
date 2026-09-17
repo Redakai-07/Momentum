@@ -206,6 +206,9 @@ export function FocusTimer({ task }: { task: Task }) {
             />
           </div>
           <p className="mt-1 text-sm text-muted-foreground">of {taskMinutesLeft} minutes remaining</p>
+          <p className="mx-auto mt-3 max-w-xs text-[12px] leading-relaxed text-muted-foreground">
+            Keep your phone sound on. A short sound will tell you when it is time to take a break.
+          </p>
         </div>
 
         <div className="mt-2 flex items-center justify-center gap-5">
