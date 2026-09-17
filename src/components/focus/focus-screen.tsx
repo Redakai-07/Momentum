@@ -60,10 +60,18 @@ export function FocusScreen() {
   // Before the first tick the phase shows at full length: correct for a just-
   // started block, self-correcting one frame later for a restored one.
   const remaining =
-    tick === null ? targetMs(session.phase, settings) : remainingMs(session, settings, tick);
-  const pct = tick === null ? 0 : phaseProgress(session, settings, tick);
-  const blocks = settings.sessionsBeforeLongBreak;
+    tick === null
+      ? targetMs(session.phase, { ...settings, focusMinutes: session.focusMinutes })
+      : remainingMs(session, { ...settings, focusMinutes: session.focusMinutes }, tick);
+  const pct =
+    tick === null
+      ? 0
+      : phaseProgress(session, { ...settings, focusMinutes: session.focusMinutes }, tick);
+  const blocks = session.blocksInSession ?? settings.sessionsBeforeLongBreak;
   const performed = session.focusDoneToday;
+  const cycleBlock = focus
+    ? (performed % blocks) + 1
+    : performed % blocks || blocks;
   const label = task ? sectionLabel(task, sections) : null;
 
   return createPortal(
@@ -126,6 +134,7 @@ export function FocusScreen() {
           stroke={9}
           className="anim-ring-in"
           trackClassName={focus ? undefined : "stroke-success/20"}
+          progressClassName={focus ? undefined : "stroke-success"}
           label={`${formatClock(remaining)} remaining in ${phaseLabel(session.phase).toLowerCase()}`}
         >
           <div className="text-center">
@@ -163,7 +172,7 @@ export function FocusScreen() {
             ))}
           </div>
           <p className="font-mono text-[11px] tnum text-muted-foreground">
-            {performed + (focus ? 1 : 0)} of {blocks} blocks today
+            Block {cycleBlock} of {blocks} in this cycle
           </p>
         </div>
 

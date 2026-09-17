@@ -198,12 +198,14 @@ export function TaskDetailModal({
   showCompleteAction = true,
   showAccomplishAction = true,
   showTimeLogControl = true,
+  showFocusTimer = true,
 }: {
   taskId: string | null;
   onClose: () => void;
   showCompleteAction?: boolean;
   showAccomplishAction?: boolean;
   showTimeLogControl?: boolean;
+  showFocusTimer?: boolean;
 }) {
   const task = useStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
   const markInteraction = useStore((s) => s.markInteraction);
@@ -268,7 +270,7 @@ export function TaskDetailModal({
           <NextActionBlock task={task} />
           {/* Focus sits above manual logging: it is the way most sessions
               actually get their minutes, but it never replaces logging. */}
-          {!accomplished && isTimedTask(task) && <FocusTimer task={task} />}
+          {!accomplished && showFocusTimer && isTimedTask(task) && <FocusTimer task={task} />}
           {!accomplished && showTimeLogControl && isTimedTask(task) && (
             <TimeLogControl task={task} />
           )}

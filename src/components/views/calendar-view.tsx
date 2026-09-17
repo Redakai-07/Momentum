@@ -213,7 +213,14 @@ export function CalendarView() {
         </div>
       )}
 
-      <TaskDetailModal taskId={selectedId} onClose={() => setSelectedId(null)} showCompleteAction={false} showAccomplishAction={false} showTimeLogControl={false} />
+      <TaskDetailModal
+        taskId={selectedId}
+        onClose={() => setSelectedId(null)}
+        showCompleteAction={false}
+        showAccomplishAction={false}
+        showTimeLogControl={false}
+        showFocusTimer={false}
+      />
     </PageFrame>
   );
 }

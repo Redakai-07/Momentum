@@ -50,6 +50,10 @@ export const FOCUS_LIMITS = {
 export interface FocusSession {
   id: string;
   taskId: string;
+  /** Focus block length chosen when this task's session started. */
+  focusMinutes: number;
+  /** Number of focus blocks needed for the task at session start. */
+  blocksInSession?: number;
   /** Which part of the cycle is on the clock. */
   phase: FocusPhase;
   /** Local calendar day the session belongs to (YYYY-MM-DD). */
@@ -158,10 +162,14 @@ export function startSession(
   taskId: string,
   now: number = Date.now(),
   id: string,
+  focusMinutes: number = DEFAULT_FOCUS_SETTINGS.focusMinutes,
+  blocksInSession?: number,
 ): FocusSession {
   return {
     id,
     taskId,
+    focusMinutes,
+    blocksInSession,
     phase: "focus",
     date: dateKey(new Date(now)),
     status: "running",
@@ -227,8 +235,8 @@ export function advancePhase(
 
   let phase: FocusPhase;
   if (finishedFocus) {
-    const dueLong =
-      focusDoneToday > 0 && focusDoneToday % settings.sessionsBeforeLongBreak === 0;
+    const cadence = session.blocksInSession ?? settings.sessionsBeforeLongBreak;
+    const dueLong = focusDoneToday > 0 && focusDoneToday % cadence === 0;
     phase = dueLong ? "long_break" : "short_break";
   } else {
     phase = "focus";
@@ -270,6 +278,7 @@ export function normalizeSession(
     : now;
   return {
     ...session,
+    focusMinutes: clampFocusSettings({ focusMinutes: session.focusMinutes }).focusMinutes,
     status,
     date:
       typeof session.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(session.date)

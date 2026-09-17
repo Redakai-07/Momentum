@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Layers,
   Settings2,
-  Timer,
   UserRound,
 } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
@@ -27,7 +26,6 @@ import {
   type DayRec,
 } from "@/lib/performance";
 import { COOLDOWN_OPTIONS } from "@/lib/config";
-import { FOCUS_LIMITS } from "@/lib/focus";
 import {
   Panel,
   WeeklyRows,
@@ -356,79 +354,6 @@ function ReminderPipeline() {
  * Pomodoro that does not get started. Values are clamped on save so a stray
  * digit cannot create an unusable timer.
  */
-function FocusSettingsRows() {
-  const settings = useStore((s) => s.focusSettings);
-  const setFocusSettings = useStore((s) => s.setFocusSettings);
-
-  const rows = [
-    {
-      key: "focusMinutes" as const,
-      label: "Focus",
-      sub: "Length of one work block.",
-      limit: FOCUS_LIMITS.focusMinutes,
-    },
-    {
-      key: "shortBreakMinutes" as const,
-      label: "Short break",
-      sub: "After each focus block.",
-      limit: FOCUS_LIMITS.shortBreakMinutes,
-    },
-    {
-      key: "longBreakMinutes" as const,
-      label: "Long break",
-      sub: "After a full set of blocks.",
-      limit: FOCUS_LIMITS.longBreakMinutes,
-    },
-  ];
-
-  return (
-    <div className="space-y-2.5 py-2.5">
-      {rows.map((row) => (
-        <div key={row.key} className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-[13.5px] font-medium text-foreground">{row.label}</p>
-            <p className="text-xs text-muted-foreground">{row.sub}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <input
-              type="number"
-              min={row.limit.min}
-              max={row.limit.max}
-              value={settings[row.key]}
-              onChange={(e) =>
-                setFocusSettings({ [row.key]: Number(e.target.value) })
-              }
-              aria-label={`${row.label} minutes`}
-              className="h-8 w-16 rounded-md border border-input bg-card px-2 text-right font-mono text-[13px] tnum focus:outline-none focus:ring-2 focus:ring-ring/60"
-            />
-            <span className="font-mono text-[11px] text-muted-foreground">min</span>
-          </div>
-        </div>
-      ))}
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[13.5px] font-medium text-foreground">Long break cadence</p>
-          <p className="text-xs text-muted-foreground">Focus blocks before a long break.</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <input
-            type="number"
-            min={2}
-            max={8}
-            value={settings.sessionsBeforeLongBreak}
-            onChange={(e) =>
-              setFocusSettings({ sessionsBeforeLongBreak: Number(e.target.value) })
-            }
-            aria-label="Focus blocks before a long break"
-            className="h-8 w-16 rounded-md border border-input bg-card px-2 text-right font-mono text-[13px] tnum focus:outline-none focus:ring-2 focus:ring-ring/60"
-          />
-          <span className="font-mono text-[11px] text-muted-foreground">blocks</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function PeriodGrid({
   today,
   week,
@@ -810,18 +735,6 @@ export function ProfileView() {
                 <Bell className="mr-1 inline h-3 w-3" />
                 Reminders are scheduled locally on this device and work offline.
               </p>
-            </div>
-          </section>
-
-          <section className="space-y-2">
-            <div className="flex items-center gap-2 px-0.5">
-              <Timer className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
-              <h2 className="text-sm font-semibold tracking-tight text-foreground">
-                Focus sessions
-              </h2>
-            </div>
-            <div className="surface rounded-2xl px-4">
-              <FocusSettingsRows />
             </div>
           </section>
 

@@ -18,6 +18,7 @@ export function ProgressRing({
   className,
   children,
   trackClassName,
+  progressClassName,
   label,
 }: {
   value: number | null;
@@ -27,6 +28,7 @@ export function ProgressRing({
   /** Rendered centred inside the ring. */
   children?: ReactNode;
   trackClassName?: string;
+  progressClassName?: string;
   label?: string;
 }) {
   const radius = (size - stroke) / 2;
@@ -59,7 +61,10 @@ export function ProgressRing({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          className="stroke-primary transition-[stroke-dashoffset] duration-700 ease-out"
+          className={cn(
+            "stroke-primary transition-[stroke-dashoffset] duration-700 ease-out",
+            progressClassName,
+          )}
         />
       </svg>
       {children && (

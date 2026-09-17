@@ -28,6 +28,7 @@ import {
   type FocusSession,
   type FocusSettings,
 } from "./focus";
+import { remainingMinutesOf } from "./duration";
 import {
   checkPermission,
   requestPermission,
@@ -250,7 +251,7 @@ type Actions = {
 
   /* Focus (Pomodoro) — an optional way to work a duration-based task. */
   /** Begin a focus phase for a timed task. No-op for completion-based work. */
-  startFocus: (taskId: string) => void;
+  startFocus: (taskId: string, focusMinutes?: number) => void;
   pauseFocus: () => void;
   resumeFocus: () => void;
   /** End the session, banking whatever focus time was actually done. */
@@ -686,7 +687,7 @@ function endFocusForTask(get: GetFn, set: SetFn, taskId: string): void {
   const s = get();
   const session = s.focusSession;
   if (!session || session.taskId !== taskId) return;
-  bankFocusTime(get, session, s.focusSettings, Date.now());
+  bankFocusTime(get, session, { ...s.focusSettings, focusMinutes: session.focusMinutes }, Date.now());
   void disarmFocusAlarm(session);
   void writeMetaValue("focusSession", null);
   set({ focusSession: null, focusScreenOpen: false });
@@ -912,12 +913,15 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
   // An interrupted session is re-armed against the clock (and re-scheduled with
   // Android if it is still running), so the alarm can never be left behind.
   if (focusSession) {
-    if (focusSession.date !== today || isPhaseComplete(focusSession, focusSettings)) {
+    const sessionSettings = focusSession
+      ? { ...focusSettings, focusMinutes: focusSession.focusMinutes }
+      : focusSettings;
+    if (focusSession.date !== today || isPhaseComplete(focusSession, sessionSettings)) {
       // Settle it now: either its clock already ran out while the app was
       // closed, or it belongs to an earlier day and must not keep running.
       void get().syncFocus();
     } else if (focusSession.status === "running") {
-      void armFocusAlarm(focusSession, focusSettings);
+      void armFocusAlarm(focusSession, sessionSettings);
     }
   }
 
@@ -1728,18 +1732,23 @@ export const useStore = create<MomentumState>()((set, get) => ({
 
   /* ------------------------------- Focus ------------------------------ */
 
-  startFocus: (taskId) => {
+  startFocus: (taskId, focusMinutes) => {
     const s = get();
     const task = s.tasks.find((t) => t.id === taskId);
     // Pomodoro is a way of working on *timed* tasks. Completion-based work has
     // no minutes to fill, so it stays a simple pending → done toggle.
     if (!task || !isTimedTask(task) || isTaskDone(task)) return;
     const now = Date.now();
-    const session = startSession(taskId, now, uid());
+    const selectedMinutes = clampFocusSettings({
+      ...s.focusSettings,
+      focusMinutes: focusMinutes ?? s.focusSettings.focusMinutes,
+    }).focusMinutes;
+    const blocksInSession = Math.max(1, Math.ceil(remainingMinutesOf(task) / selectedMinutes));
+    const session = startSession(taskId, now, uid(), selectedMinutes, blocksInSession);
     void writeMetaValue("focusSession", session);
     // Starting a block takes over the screen: a Pomodoro is a mode, not a widget.
     set({ focusSession: session, focusScreenOpen: true });
-    void armFocusAlarm(session, s.focusSettings);
+    void armFocusAlarm(session, { ...s.focusSettings, focusMinutes: session.focusMinutes });
     devLog("focus started", { taskId, phase: session.phase });
   },
 
@@ -1760,7 +1769,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const next = resumeSession(session, Date.now());
     void writeMetaValue("focusSession", next);
     set({ focusSession: next });
-    void armFocusAlarm(next, s.focusSettings);
+    void armFocusAlarm(next, { ...s.focusSettings, focusMinutes: session.focusMinutes });
   },
 
   stopFocus: () => {
@@ -1770,7 +1779,8 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const now = Date.now();
     // Bank the work before tearing the session down — stopping early must
     // never throw away minutes the user actually spent.
-    bankFocusTime(get, session, s.focusSettings, now);
+    const sessionSettings = { ...s.focusSettings, focusMinutes: session.focusMinutes };
+    bankFocusTime(get, session, sessionSettings, now);
     void disarmFocusAlarm(session);
     void writeMetaValue("focusSession", null);
     set({ focusSession: null, focusScreenOpen: false });
@@ -1782,12 +1792,13 @@ export const useStore = create<MomentumState>()((set, get) => ({
     const session = s.focusSession;
     if (!session) return;
     const now = Date.now();
-    bankFocusTime(get, session, s.focusSettings, now);
+    const sessionSettings = { ...s.focusSettings, focusMinutes: session.focusMinutes };
+    bankFocusTime(get, session, sessionSettings, now);
     void disarmFocusAlarm(session);
-    const next = advancePhase({ ...session, status: "running" }, s.focusSettings, now);
+    const next = advancePhase({ ...session, status: "running" }, sessionSettings, now);
     void writeMetaValue("focusSession", next);
     set({ focusSession: next });
-    void armFocusAlarm(next, s.focusSettings);
+    void armFocusAlarm(next, sessionSettings);
   },
 
   /**
@@ -1807,7 +1818,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
       // Crossed midnight. Bank the work against the day it happened and end the
       // session — silently carrying it into a new day would inflate the wrong
       // day's performance and confuse the block count.
-      bankFocusTime(get, session, s.focusSettings, now);
+      bankFocusTime(get, session, { ...s.focusSettings, focusMinutes: session.focusMinutes }, now);
       void disarmFocusAlarm(session);
       void writeMetaValue("focusSession", null);
       set({ focusSession: null, focusScreenOpen: false });
@@ -1815,17 +1826,18 @@ export const useStore = create<MomentumState>()((set, get) => ({
       return;
     }
     if (session.status !== "running") return;
-    if (!isPhaseComplete(session, s.focusSettings, now)) return;
+    const sessionSettings = { ...s.focusSettings, focusMinutes: session.focusMinutes };
+    if (!isPhaseComplete(session, sessionSettings, now)) return;
 
     const finished = session.phase;
-    bankFocusTime(get, session, s.focusSettings, now);
+    bankFocusTime(get, session, sessionSettings, now);
     void disarmFocusAlarm(session);
     // Advance past the completed phase — both focus and breaks roll forward, so
     // a finished break drops the user back into a fresh focus phase.
-    const next = advancePhase(session, s.focusSettings, now);
+    const next = advancePhase(session, sessionSettings, now);
     void writeMetaValue("focusSession", next);
     set({ focusSession: next });
-    void armFocusAlarm(next, s.focusSettings);
+    void armFocusAlarm(next, sessionSettings);
     void showFocusTransition(finished, next.phase);
   },
 

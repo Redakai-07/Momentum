@@ -33,8 +33,8 @@ export function FocusBanner() {
 
   const remaining =
     tick === null
-      ? targetMs(session.phase, settings)
-      : remainingMs(session, settings, tick);
+      ? targetMs(session.phase, { ...settings, focusMinutes: session.focusMinutes })
+      : remainingMs(session, { ...settings, focusMinutes: session.focusMinutes }, tick);
   const focus = session.phase === "focus";
   const running = session.status === "running";
 

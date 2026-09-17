@@ -49,6 +49,18 @@ describe("focus settings", () => {
     expect(clampFocusSettings(null)).toEqual(DEFAULT_FOCUS_SETTINGS);
     expect(clampFocusSettings({}).focusMinutes).toBe(25);
   });
+
+  it("stores a custom focus length on the session", () => {
+    const session = startSession("task-1", T0, "session-1", 45, 3);
+    expect(session.focusMinutes).toBe(45);
+    expect(session.blocksInSession).toBe(3);
+  });
+
+  it("keeps legacy sessions on the 25-minute default", () => {
+    const legacy = { ...started() };
+    delete (legacy as { focusMinutes?: number }).focusMinutes;
+    expect(normalizeSession(legacy)!.focusMinutes).toBe(25);
+  });
 });
 
 describe("focus session — elapsed time comes from timestamps, not ticks", () => {
@@ -160,6 +172,14 @@ describe("focus minutes credited to the task", () => {
 });
 
 describe("focus cycle", () => {
+  it("uses the session block count for the long-break cadence", () => {
+    const session = startSession("task-1", T0, "session-1", 25, 2);
+    const first = advancePhase(session, S, T0 + 25 * MIN);
+    expect(first.phase).toBe("short_break");
+    const second = advancePhase(advancePhase(first, S, T0 + 30 * MIN), S, T0 + 55 * MIN);
+    expect(second.phase).toBe("long_break");
+  });
+
   it("16. a finished focus block rolls into a short break", () => {
     const next = advancePhase(started(), S, T0 + 25 * MIN);
     expect(next.phase).toBe("short_break");

@@ -4,7 +4,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ------------------------------------------------------------------ */
-/* Semantic tokens — warm neutrals, calm indigo accent, amber signal.  */
+/* Semantic tokens — mist, ink, sea-glass and a warm coral signal. */
 /* Values are raw HSL triplets so we can build alpha variants.         */
 /* ------------------------------------------------------------------ */
 
@@ -12,74 +12,74 @@
   color-scheme: light;
 
   --background: 0 0% 96.5%;
-  --foreground: 198 28% 13%;
+  --foreground: 210 32% 15%;
 
   --card: 0 0% 100%;
-  --card-foreground: 198 28% 13%;
+  --card-foreground: 210 32% 15%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 198 28% 13%;
+  --popover-foreground: 210 32% 15%;
 
-  --muted: 0 0% 91%;
-  --muted-foreground: 0 0% 40%;
+  --muted: 150 12% 88%;
+  --muted-foreground: 210 12% 43%;
 
-  --accent: 174 38% 91%;
-  --accent-foreground: 174 46% 23%;
+  --accent: 166 42% 88%;
+  --accent-foreground: 172 48% 22%;
 
-  --primary: 174 62% 32%;
+  --primary: 172 58% 29%;
   --primary-foreground: 0 0% 100%;
 
   --destructive: 3 66% 42%;
   --destructive-foreground: 0 0% 100%;
 
-  --signal: 14 76% 48%;
-  --signal-soft: 18 82% 93%;
-  --signal-foreground: 14 56% 25%;
+  --signal: 14 78% 52%;
+  --signal-soft: 18 88% 93%;
+  --signal-foreground: 14 58% 27%;
 
   --success: 154 55% 32%;
 
-  --border: 0 0% 83%;
-  --input: 0 0% 80%;
-  --ring: 174 62% 34%;
+  --border: 150 10% 80%;
+  --input: 150 10% 76%;
+  --ring: 172 58% 34%;
 
-  --sidebar: 0 0% 93%;
+  --sidebar: 205 24% 91%;
 }
 
 .dark {
   color-scheme: dark;
 
   --background: 0 0% 4.5%;
-  --foreground: 0 0% 92%;
+  --foreground: 150 20% 93%;
 
-  --card: 0 0% 9%;
-  --card-foreground: 0 0% 92%;
+  --card: 210 29% 12%;
+  --card-foreground: 150 20% 93%;
 
-  --popover: 0 0% 10.5%;
-  --popover-foreground: 0 0% 92%;
+  --popover: 210 29% 14%;
+  --popover-foreground: 150 20% 93%;
 
-  --muted: 0 0% 16%;
-  --muted-foreground: 0 0% 64%;
+  --muted: 210 22% 19%;
+  --muted-foreground: 210 12% 67%;
 
-  --accent: 174 35% 19%;
-  --accent-foreground: 174 45% 84%;
+  --accent: 170 35% 19%;
+  --accent-foreground: 166 54% 84%;
 
-  --primary: 174 58% 55%;
-  --primary-foreground: 0 0% 8%;
+  --primary: 166 62% 61%;
+  --primary-foreground: 210 35% 8%;
 
   --destructive: 2 70% 58%;
   --destructive-foreground: 0 0% 100%;
 
-  --signal: 14 82% 63%;
-  --signal-soft: 14 45% 17%;
-  --signal-foreground: 18 90% 82%;
+  --signal: 14 88% 67%;
+  --signal-soft: 14 45% 18%;
+  --signal-foreground: 18 90% 84%;
 
   --success: 154 60% 52%;
 
-  --border: 0 0% 22%;
-  --input: 0 0% 25%;
-  --ring: 174 58% 58%;
+  --border: 210 19% 25%;
+  --input: 210 19% 29%;
+  --ring: 166 62% 64%;
 
-  --sidebar: 0 0% 6%;
+  --sidebar: 210 40% 6%;
 }
 
 /* Optional accent presets. The default intentionally matches Momentum's
@@ -146,9 +146,9 @@
   --color-ring: hsl(var(--ring));
   --color-sidebar: hsl(var(--sidebar));
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular,
+  --font-mono: var(--font-space-grotesk), ui-monospace, SFMono-Regular,
     Menlo, monospace;
 
   --shadow-soft: 0 1px 2px rgb(24 18 8 / 0.05), 0 10px 30px -18px rgb(24 18 8 / 0.18);
