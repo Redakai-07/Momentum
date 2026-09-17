@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { useSecondTick } from "@/lib/hooks";
 
@@ -23,6 +23,7 @@ export function useFocusEngine(): number | null {
   const syncFocus = useStore((s) => s.syncFocus);
   const running = session?.status === "running";
   const tick = useSecondTick(Boolean(session));
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -32,13 +33,35 @@ export function useFocusEngine(): number | null {
     if (!running) return;
 
     const id = window.setInterval(() => syncFocus(), 1000);
-    const onVisible = () => syncFocus();
+    let disposed = false;
+    const requestWakeLock = async () => {
+      if (!running || !navigator.wakeLock) return;
+      try {
+        const wakeLock = await navigator.wakeLock.request("screen");
+        if (disposed) {
+          await wakeLock.release();
+          return;
+        }
+        wakeLockRef.current = wakeLock;
+      } catch {
+        // Wake Lock is optional and may be denied by the browser or device.
+      }
+    };
+    const onVisible = () => {
+      syncFocus();
+      if (document.visibilityState === "visible") void requestWakeLock();
+    };
+    void requestWakeLock();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {
+      disposed = true;
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      const wakeLock = wakeLockRef.current;
+      wakeLockRef.current = null;
+      if (wakeLock) void wakeLock.release();
     };
   }, [session, running, syncFocus]);
 

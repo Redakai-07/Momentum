@@ -1739,10 +1739,9 @@ export const useStore = create<MomentumState>()((set, get) => ({
     // no minutes to fill, so it stays a simple pending → done toggle.
     if (!task || !isTimedTask(task) || isTaskDone(task)) return;
     const now = Date.now();
-    const selectedMinutes = clampFocusSettings({
-      ...s.focusSettings,
-      focusMinutes: focusMinutes ?? s.focusSettings.focusMinutes,
-    }).focusMinutes;
+    const selectedMinutes = focusMinutes === undefined
+      ? s.focusSettings.focusMinutes
+      : Math.max(1, Math.min(120, Math.round(focusMinutes)));
     const blocksInSession = Math.max(1, Math.ceil(remainingMinutesOf(task) / selectedMinutes));
     const session = startSession(taskId, now, uid(), selectedMinutes, blocksInSession);
     void writeMetaValue("focusSession", session);

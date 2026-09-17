@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
-  ArrowRight,
   BadgeCheck,
   CheckCircle2,
   Pencil,
   Trash2,
-  X,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -47,87 +45,6 @@ function TimeSummary({ task }: { task: Task }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-    </div>
-  );
-}
-
-function NextActionBlock({ task }: { task: Task }) {
-  const updateTask = useStore((s) => s.updateTask);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(task.nextAction ?? "");
-  const value = task.nextAction ?? "";
-  const editable = task.status === "active";
-
-  const save = () => {
-    updateTask(task.id, { nextAction: draft.trim() || undefined });
-    setEditing(false);
-  };
-
-  const cancel = () => {
-    setDraft(task.nextAction ?? "");
-    setEditing(false);
-  };
-
-  return (
-    <div className="rounded-xl border border-border/70 bg-accent/40 p-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-          Next action
-        </p>
-        {editable && !editing && (
-          <button
-            type="button"
-            onClick={() => {
-              setDraft(value);
-              setEditing(true);
-            }}
-            aria-label="Edit next action"
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Pencil className="h-3 w-3" strokeWidth={2} />
-          </button>
-        )}
-      </div>
-      {editing ? (
-        <div className="mt-2 space-y-2">
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") cancel();
-            }}
-            placeholder="The concrete next step…"
-            className="h-8 w-full rounded-md border border-input bg-card px-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-ring/60"
-          />
-          <div className="flex justify-end gap-1.5">
-            <Button size="sm" variant="ghost" onClick={cancel}>
-              <X className="h-3.5 w-3.5" /> Cancel
-            </Button>
-            <Button size="sm" variant="primary" onClick={save} disabled={!draft.trim()}>
-              <CheckCircle2 className="h-3.5 w-3.5" /> Save
-            </Button>
-          </div>
-        </div>
-      ) : value ? (
-        <p className="mt-1.5 flex items-start gap-2 text-[13.5px] font-medium leading-snug text-foreground">
-          <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" strokeWidth={2.2} />
-          {value}
-        </p>
-      ) : editable ? (
-        <p
-          className="mt-1.5 cursor-pointer text-[13px] text-muted-foreground"
-          onClick={() => {
-            setDraft("");
-            setEditing(true);
-          }}
-        >
-          Add the one concrete step that moves this forward…
-        </p>
-      ) : (
-        <p className="mt-1.5 text-[13px] text-muted-foreground">—</p>
-      )}
     </div>
   );
 }
@@ -267,7 +184,6 @@ export function TaskDetailModal({
         <MetaLine task={task} />
         <div className="space-y-3">
           {!accomplished && isTimedTask(task) && <TimeSummary task={task} />}
-          <NextActionBlock task={task} />
           {/* Focus sits above manual logging: it is the way most sessions
               actually get their minutes, but it never replaces logging. */}
           {!accomplished && showFocusTimer && isTimedTask(task) && <FocusTimer task={task} />}

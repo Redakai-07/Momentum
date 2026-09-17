@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { useModalStack } from "@/lib/modal-stack";
 import { useFocusEngine } from "./use-focus-engine";
-import { formatClock, phaseLabel, phaseProgress, remainingMs, targetMs } from "@/lib/focus";
+import { elapsedMs, formatClock, phaseLabel, phaseProgress, remainingMs, targetMs } from "@/lib/focus";
 import { isTimedTask, remainingMinutesOf } from "@/lib/duration";
 import { formatMinutes } from "@/lib/format";
 import { sectionLabel } from "@/lib/labels";
@@ -73,6 +73,15 @@ export function FocusScreen() {
     ? (performed % blocks) + 1
     : performed % blocks || blocks;
   const label = task ? sectionLabel(task, sections) : null;
+  const taskMinutesLeft = task
+    ? Math.max(
+        0,
+        remainingMinutesOf(task) -
+          (session.phase === "focus"
+            ? elapsedMs(session, tick ?? session.updatedAt) / 60_000
+            : 0),
+      )
+    : 0;
 
   return createPortal(
     <div
@@ -223,7 +232,7 @@ export function FocusScreen() {
 
         {task && isTimedTask(task) && (
           <p className="font-mono text-[11px] tnum text-muted-foreground">
-            {formatMinutes(remainingMinutesOf(task))} left on this task
+            {formatMinutes(taskMinutesLeft)} left on this task
           </p>
         )}
       </div>
