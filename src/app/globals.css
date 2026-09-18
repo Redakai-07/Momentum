@@ -51,10 +51,10 @@
   --background: 0 0% 4.5%;
   --foreground: 150 20% 93%;
 
-  --card: 210 29% 12%;
+  --card: 210 30% 7.5%;
   --card-foreground: 150 20% 93%;
 
-  --popover: 210 29% 14%;
+  --popover: 210 30% 9%;
   --popover-foreground: 150 20% 93%;
 
   --muted: 210 22% 19%;
@@ -228,23 +228,14 @@
     cursor: pointer;
   }
 
-  /* Slim, quiet scrollbars */
+  /* Hidden scrollbars — scrolling still works everywhere, the bar is simply
+     not drawn. Keeps `overflow` behaviour untouched, so layout is unaffected. */
   * {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
   }
   *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  *::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground) / 0.28);
-    border-radius: 8px;
-    border: 2px solid transparent;
-    background-clip: content-box;
-  }
-  *::-webkit-scrollbar-track {
-    background: transparent;
+    display: none; /* Chrome, Edge, Safari, Android WebView */
   }
 }
 

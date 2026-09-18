@@ -1605,6 +1605,37 @@ export const useStore = create<MomentumState>()((set, get) => ({
       set({ notificationMeta: meta });
     }
 
+    // Delivery must reach the user OUTSIDE the app, not only in the in-app
+    // strip. On Android the cue is posted through Capacitor Local
+    // Notifications (the same path as the test notification); on the web we
+    // fall back to the browser notification API. The scheduled catch-up in
+    // `buildNativeSchedule` only covers cues that matured while the app was
+    // closed — candidates there exclude "delivered" rows, so this cannot
+    // double-fire.
+    if (newlyDelivered.length > 0 && nativeAvailable()) {
+      await ensureChannel();
+      await refreshExactAlarmState();
+      const now2 = Date.now();
+      await scheduleRecords(
+        newlyDelivered.map((n, i) => {
+          const task = s.tasks.find((t) => t.id === n.taskId);
+          const body =
+            n.type === "next_task" && task?.nextAction
+              ? `Next: ${task.nextAction}`
+              : task
+                ? notificationMessage(n, task.title)
+                : "You still have planned work waiting.";
+          return {
+            id: nativeIdForKey(`deliver:${n.id}:${now2}:${i}`),
+            key: `deliver:${n.id}:${now2}:${i}`,
+            title: task?.title ?? "Momentum",
+            body,
+            at: new Date(now2 + 2_000), // just past "now" so Android posts it
+          };
+        }),
+      );
+    }
+
     // On web environments, show external browser notifications for newly delivered cues
     if (!nativeAvailable()) {
       for (const n of newlyDelivered) {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Layers, Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Layers, Pencil, Plus, Smile, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/form";
@@ -12,6 +13,132 @@ import { useStore } from "@/lib/store";
 import { scheduleSummary } from "@/lib/labels";
 import type { CustomSection, MonthOccurrence, Schedule, ScheduleType, Weekday } from "@/lib/types";
 import { DayChips } from "../tasks/section-days";
+import { cn } from "@/lib/utils";
+
+/** Curated one-tap glyphs — a tap replaces the previous one, so a section can
+ *  never end up with two emoji stacked together. */
+const SECTION_ICONS = ["🧪", "📖", "🎯", "💼", "🏠", "💪", "🎵", "💻", "🌱", "✈️", "💡", "🎨", "🧠", "⭐"];
+
+/** WhatsApp-style emoji picker: the field opens a small floating panel that
+ *  escapes every scroll container (rendered through a portal with fixed
+ *  positioning), so nothing clips it. Tapping a glyph or clicking outside
+ *  closes it. One tap = one emoji. */
+function SectionIconPicker({ value, onChange }: { value: string; onChange: (icon: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Anchor the portal panel just below the trigger, clamped to the viewport.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const place = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const w = panelRef.current?.offsetWidth ?? 300;
+      const h = panelRef.current?.offsetHeight ?? 120;
+      const left = Math.min(r.left, window.innerWidth - w - 12);
+      let top = r.bottom + 6;
+      if (top + h > window.innerHeight - 12) top = Math.max(12, r.top - h - 6);
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        !triggerRef.current?.contains(target) &&
+        !panelRef.current?.contains(target)
+      )
+        setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Choose an icon"
+        className={cn(
+          "press grid h-10 w-full place-items-center rounded-lg border text-[18px] leading-none transition-colors",
+          value ? "border-primary/60 bg-primary/5" : "border-border bg-card hover:bg-muted/50",
+        )}
+      >
+        {value || <Smile className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />}
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-label="Pick an icon"
+            style={{
+              position: "fixed",
+              top: pos?.top ?? -9999,
+              left: pos?.left ?? -9999,
+              visibility: pos ? "visible" : "hidden",
+            }}
+            className="z-[80] w-max rounded-xl border border-border bg-popover p-2 shadow-lift"
+          >
+            <div className="grid grid-cols-7 gap-1">
+              <button
+                type="button"
+                onClick={() => { onChange(""); setOpen(false); }}
+                aria-pressed={value === ""}
+                aria-label="No icon"
+                className={cn(
+                  "press grid h-9 w-9 place-items-center rounded-lg text-xs text-muted-foreground",
+                  value === "" ? "bg-primary/10 text-foreground" : "hover:bg-muted/60",
+                )}
+              >
+                None
+              </button>
+              {SECTION_ICONS.map((icon) => (
+                <button
+                  key={icon}
+                  type="button"
+                  onClick={() => { onChange(icon); setOpen(false); }}
+                  aria-pressed={value === icon}
+                  aria-label={`Icon ${icon}`}
+                  className={cn(
+                    "press grid h-9 w-9 place-items-center rounded-lg text-[17px] leading-none",
+                    value === icon ? "bg-primary/10" : "hover:bg-muted/60",
+                  )}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
 
 function SectionFormModal({
   open,
@@ -72,7 +199,7 @@ function SectionFormModal({
         }}
         className="space-y-4"
       >
-        <div className="grid grid-cols-[1fr_92px] gap-3">
+        <div className="grid grid-cols-[1fr_auto] gap-3">
           <Field label="Name" htmlFor="sec-name">
             <Input
               id="sec-name"
@@ -83,15 +210,8 @@ function SectionFormModal({
               maxLength={40}
             />
           </Field>
-          <Field label="Icon">
-            <Input
-              aria-label="Icon (emoji)"
-              placeholder="🧪"
-              value={icon}
-              onChange={(e) => setIcon(e.target.value)}
-              maxLength={4}
-              className="px-2 text-center"
-            />
+          <Field label="Icon" hint="Optional">
+            <SectionIconPicker value={icon} onChange={setIcon} />
           </Field>
         </div>
 
