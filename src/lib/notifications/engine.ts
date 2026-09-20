@@ -28,6 +28,13 @@ export interface EngineResult {
 
 const MIN = 60_000;
 
+/** End of the local calendar day for a YYYY-MM-DD key (used as expiry). */
+function endOfDayIso(dateKey: string): string {
+  const d = new Date(dateKey + "T12:00:00");
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+  return end.toISOString();
+}
+
 function atLocal(now: Date, hour: number, minute: number): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute);
 }
@@ -91,7 +98,10 @@ export function planNotifications(ctx: NotifContext): EngineResult {
   /* 1. Clean up stale rows from previous days.                          */
   /* ------------------------------------------------------------------ */
   for (const n of existing) {
-    if (n.date !== today && n.status === "scheduled") {
+    if (n.status !== "scheduled") continue;
+    const expired =
+      n.expiresAt !== undefined && new Date(n.expiresAt).getTime() <= nowMs;
+    if (expired || n.date !== today) {
       pushUpdate({ ...n, status: "cancelled" });
     }
   }
@@ -184,6 +194,8 @@ export function planNotifications(ctx: NotifContext): EngineResult {
           date: today,
           scheduledAt: new Date(morning).toISOString(),
           cooldownMinutes: s.cooldownMinutes,
+          reason: "special_task",
+          expiresAt: endOfDayIso(today),
         });
         existingKeys.add(key);
       }
@@ -200,6 +212,8 @@ export function planNotifications(ctx: NotifContext): EngineResult {
           date: today,
           scheduledAt: new Date(morning).toISOString(),
           cooldownMinutes: s.cooldownMinutes,
+          reason: "overdue_task",
+          expiresAt: endOfDayIso(today),
         });
         existingKeys.add(key);
       }
@@ -227,6 +241,8 @@ export function planNotifications(ctx: NotifContext): EngineResult {
               date: today,
               scheduledAt: new Date(fire).toISOString(),
               cooldownMinutes: s.cooldownMinutes,
+              reason: "schedule_relevance",
+              expiresAt: endOfDayIso(today),
             });
             existingKeys.add(key);
           }
@@ -244,6 +260,8 @@ export function planNotifications(ctx: NotifContext): EngineResult {
               date: today,
               scheduledAt: new Date(fire).toISOString(),
               cooldownMinutes: s.cooldownMinutes,
+              reason: "schedule_relevance",
+              expiresAt: endOfDayIso(today),
             });
             existingKeys.add(key);
           }
@@ -269,6 +287,8 @@ export function planNotifications(ctx: NotifContext): EngineResult {
             date: today,
             scheduledAt: new Date(cooldownEnd).toISOString(),
             cooldownMinutes: s.cooldownMinutes,
+            reason: "next_action",
+            expiresAt: endOfDayIso(today),
           });
         }
       }

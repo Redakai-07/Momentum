@@ -505,7 +505,7 @@ function buildNativeSchedule(
   // scheduled / snoozed records.
   const candidates = new Map<
     string,
-    { taskId: string; type: TaskNotification["type"]; date: string; scheduledAt: string; snoozedUntil?: string; status?: string }
+    { taskId: string; type: TaskNotification["type"]; date: string; scheduledAt: string; snoozedUntil?: string; status?: string; expiresAt?: string }
   >();
 
   for (const c of creates) {
@@ -525,6 +525,8 @@ function buildNativeSchedule(
     const task = s.tasks.find((t) => t.id === item.taskId);
     if (!task || task.status !== "active") continue;
     if (isTaskDoneOn(task, today)) continue;
+    // Stale-notification prevention: a cue past its expiry must never fire.
+    if (item.expiresAt && new Date(item.expiresAt).getTime() <= now.getTime()) continue;
 
     // The moment already passed while the app was closed (or the cue belongs to
     // an earlier slot today). Still-valid work is re-armed for later today
@@ -731,6 +733,10 @@ export interface DecisionDiagnostics {
   scheduledId: number | null;
   pendingNativeCount: number;
   nextPendingAt: string | null;
+  /** Deterministic reminder score behind the day's plan (dev tuning aid). */
+  score: number;
+  /** Why the user is being nudged: due / next_action / evening_check_in / … */
+  kind: string;
 }
 
 const REASON_COPY: Record<string, string> = {
@@ -790,6 +796,8 @@ function describeDayPlan(
     scheduledId: scheduled,
     pendingNativeCount: native.pendingCount,
     nextPendingAt: pending[0]?.at ?? null,
+    score: plan.score,
+    kind: plan.kind,
   };
 }
 

@@ -32,8 +32,6 @@ const CHANNEL_ID = "momentum-reminders";
 const CHANNEL_NAME = "Momentum reminders";
 const CHANNEL_DESCRIPTION = "Task cues and progress nudges from Momentum";
 
-/** How far ahead a notification may bypass Doze (Android caps this at 9 min/idle). */
-const IDLE_WINDOW_MS = 60 * 60_000;
 
 export interface NativeNotifSpec {
   /** Stable positive integer id — must fit in a 32-bit signed int. */

@@ -4,6 +4,12 @@ import { taskOccursOn } from "../schedule";
 import { isTaskDoneOn, remainingOn } from "../task-state";
 import { isTimedTask, plannedMinutesOf } from "../duration";
 import type { NotificationSettings } from "./types";
+import {
+  computeReminderScore,
+  messageForKind,
+  ORDINARY_MIN_SCORE,
+  type ReminderKind,
+} from "./score";
 
 /**
  * Deterministic notification decision engine.
@@ -247,6 +253,10 @@ export interface DayPlan {
   /** The task the day's nudge should point at. */
   task: Task | null;
   message: string | null;
+  /** Deterministic reminder score behind the decision (diagnostics + tuning). */
+  score: number;
+  /** Why the user is being nudged — drives the message variant. */
+  kind: ReminderKind;
   /**
    * Earliest stable moment an ordinary reminder may fire today, or null when
    * the day has run out of non-quiet time.
@@ -276,7 +286,16 @@ export function planDayReminder(ctx: DecisionContext): DayPlan {
     reason: DecisionReason,
     priority: ReminderPriority = "low",
     task: Task | null = null,
-  ): DayPlan => ({ eligible: false, reason, priority, task, message: null, earliest: null });
+  ): DayPlan => ({
+    eligible: false,
+    reason,
+    priority,
+    task,
+    message: null,
+    earliest: null,
+    score: 0,
+    kind: "remaining_work",
+  });
 
   if (!settings.enabled) return none("notifications_disabled");
 
@@ -305,6 +324,19 @@ export function planDayReminder(ctx: DecisionContext): DayPlan {
       ? "normal"
       : "low";
 
+  // Activity-aware reminder score: the single place weights live. Ordinary
+  // (non-urgent) reminders must clear a minimum interest threshold so an
+  // idle-but-trivial day never produces a nudge.
+  const scored = computeReminderScore({
+    ctx,
+    state,
+    target,
+    alreadyNotified: false,
+  });
+  if (!highPriority && scored.persistentScore < ORDINARY_MIN_SCORE) {
+    return none("no_gap_yet", "low", target);
+  }
+
   // Earliest stable firing moment: a small lead from now, breathing room after
   // real work, and never before an ordinary cooldown has elapsed. High-priority
   // work may pierce the ordinary cooldown, exactly as `shouldNotify` allows.
@@ -322,11 +354,7 @@ export function planDayReminder(ctx: DecisionContext): DayPlan {
   }
 
   const slot = nextOutsideQuiet(settings, new Date(at));
-  const message = target.nextAction
-    ? `Next: ${target.nextAction}`
-    : state.critical
-      ? `Keep your streak alive — ${target.title} is still waiting.`
-      : `Keep your streak alive — ${target.title} is ready when you are.`;
+  const message = messageForKind(scored.kind, target, state.remainingMinutes);
 
   return {
     eligible: true,
@@ -340,6 +368,8 @@ export function planDayReminder(ctx: DecisionContext): DayPlan {
     priority,
     task: target,
     message,
+    score: scored.score,
+    kind: scored.kind,
     // A slot that spills into tomorrow belongs to tomorrow's plan, not today's.
     earliest: dateKey(slot) === state.key ? slot : null,
   };

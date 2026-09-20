@@ -18,6 +18,14 @@ export interface TaskNotification {
   deliveredAt?: string;
   snoozedUntil?: string;
   dismissedAt?: string;
+  /**
+   * After this moment the reminder's underlying reason is no longer valid —
+   * scheduled-but-unexpired rows past this point are cancelled, never fired.
+   * Defaults to the end of the reminder's local day.
+   */
+  expiresAt?: string;
+  /** Why this reminder exists (the decision reason at scheduling time). */
+  reason?: string;
 }
 
 export interface NotificationSettings {
