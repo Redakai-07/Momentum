@@ -371,6 +371,13 @@ function normalizeTask(raw: unknown, index: number): RowResult<Task> {
       ? raw.notifyTime
       : undefined;
 
+  // Explicit one-shot reminder. A value that is not a real timestamp is
+  // dropped rather than failing the import.
+  const remindAt =
+    isStr(raw.remindAt) && Number.isFinite(new Date(raw.remindAt).getTime())
+      ? new Date(raw.remindAt).toISOString()
+      : undefined;
+
   const planned = normalizeDurationValue(raw.estimatedMinutes);
   const remainingRaw = raw.remainingMinutes;
   const remaining = isNum(remainingRaw)
@@ -390,6 +397,7 @@ function normalizeTask(raw: unknown, index: number): RowResult<Task> {
     priority: isStr(raw.priority) ? (raw.priority as Priority) : undefined,
     schedule: schedule ?? undefined,
     notifyTime,
+    remindAt,
     status,
     createdAt: isStr(raw.createdAt) && raw.createdAt.length > 0 ? raw.createdAt : new Date().toISOString(),
     completedAt: isStr(raw.completedAt) ? raw.completedAt : undefined,

@@ -33,6 +33,8 @@ export const NOTIFICATION_DEFAULTS = {
   enabled: true,
   /** Default time for daily/custom tasks that carry no time of their own. */
   dailyReminderTime: "09:00",
+  /** One calm later check-in when the day's plan is still open. */
+  followUpTime: "17:00",
   /** Weekend day (0 = Sunday … 6 = Saturday) for Reminder-section work. */
   remainderWeekday: 6,
   /** Local "HH:MM" — when that weekly reminder fires. */
@@ -49,11 +51,12 @@ export const NOTIFICATION_DEFAULTS = {
   overdueReminders: true,
   /** Minutes a snooze pushes a notification back by. */
   snoozeMinutes: 30,
-  /* ---- Legacy fields (stored values remain readable) ---- */
-  cooldownMinutes: 60,
+  /** Quiet hours of 22:30 → 07:00 — ordinary reminders never land inside. */
   quietHoursEnabled: true,
   quietStart: "22:30",
   quietEnd: "07:00",
+  /* ---- Legacy fields (stored values remain readable) ---- */
+  cooldownMinutes: 60,
   morningHour: 9,
   completionCooldownMinutes: 30,
 } as const;

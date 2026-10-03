@@ -3,7 +3,7 @@ import { rolloverTasks, isTaskDoneOn, needsNewDayReset, remainingOn, completionD
 import { liveDayRec } from "./performance";
 import { scheduleOccursOn } from "./schedule";
 import { pickNextTask, planNotifications } from "./notifications/engine";
-import { planUpcomingReminders } from "./notifications/planner";
+import { evaluateReminder } from "./notifications/planner";
 import type { NotificationSettings } from "./notifications/types";
 import type { CustomSection, Task, TimeLog } from "./types";
 
@@ -45,6 +45,7 @@ const L = (taskId: string, minutes: number, date: string): TimeLog => ({
 const settings: NotificationSettings = {
   enabled: true,
   dailyReminderTime: "09:00",
+  followUpTime: "17:00",
   remainderWeekday: 6,
   remainderTime: "10:00",
   occasionalDays: [1, 15],
@@ -258,7 +259,7 @@ describe("TEST 11-13 — the reminder engine reads today's activity", () => {
     const done = completedOn("ml", "ML", DAY2, 60);
     expect(pickNextTask(DAY2, [done])).toBeNull();
 
-    const plan = planUpcomingReminders({
+    const plan = evaluateReminder({
       now: new Date(2026, 8, 14, 15, 0), // DAY2 15:00 local
       tasks: [done],
       logs: [L("ml", 60, DAY2)],
@@ -267,7 +268,7 @@ describe("TEST 11-13 — the reminder engine reads today's activity", () => {
     // Today's moment is spent; the planner arms nothing for DAY2 but does arm
     // the following days, because recurring work reopens.
     expect(plan.records.filter((r) => r.date === DAY2)).toHaveLength(0);
-    expect(plan.records.some((r) => r.date === DAY3 && r.taskId === "ml")).toBe(true);
+    expect(plan.records.some((r) => r.date === DAY3 && r.taskIds.includes("ml"))).toBe(true);
   });
 
   it("TEST 13 — the same task is a reminder candidate again the next day", () => {
@@ -278,14 +279,14 @@ describe("TEST 11-13 — the reminder engine reads today's activity", () => {
     expect(remainingOn(stale, DAY3)).toBe(60);
 
     // DAY3 15:00 is after the 09:00 default, so today's reminder is a catch-up.
-    const plan = planUpcomingReminders({
+    const plan = evaluateReminder({
       now: new Date(2026, 8, 15, 15, 0),
       tasks: [stale],
       logs: [L("ml", 60, DAY2)],
       settings,
     });
     const today = plan.records.find((r) => r.date === DAY3);
-    expect(today?.taskId).toBe("ml");
+    expect(today?.taskIds).toContain("ml");
     expect(today?.catchUp).toBe(true);
   });
 

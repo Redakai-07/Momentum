@@ -183,42 +183,52 @@ Real, and already covered by the plugin:
 Not dependencies, and must not be reintroduced: FCM/OneSignal, a service worker,
 a background JS loop, or any assumption that the WebView stays alive.
 
-## 7. Proposed simplified architecture (implemented as the minimum foundation)
+## 7. Simplified architecture (implemented; product philosophy in planner.ts)
 
 ```
-Task ── notifyTime? ──┐
-Section schedule ─────┼──► planner.planUpcomingReminders(now, horizon = 7 days)
-Settings times ───────┘         │  one record per task per day:
-                                │  key = taskId:date, at = local HH:MM
-                                ▼
-            reconcile vs getPending()  → anchored / fired sets
-                                │
-                                ▼
-              service.resyncNative()  (schedule first; cancel only stale ids;
-                                       unchanged alarms left in place)
-                                │
-                                ▼
-              Android AlarmManager → notification shade   (offline, no JS)
+Task ── remindAt? / notifyTime? ──┐
+Section schedule (isSectionActiveOnDate) ─┼─► evaluateReminder(context)
+Settings times ───────────────────┘        │   priority · quiet hours · cooldown
+                                           │   one record per task per day,
+                                           │   section records grouped by moment
+                                           ▼
+                     reconcile vs getPending()  → anchored / fired sets
+                                           │
+                                           ▼
+                     service.resyncNative()  (schedule first; cancel only stale ids)
+                                           │
+                                           ▼
+                     Android AlarmManager → notification shade  (offline, no JS)
 ```
 
-Rules (deliberately boring and testable):
+Rules (each covered by planner.test.ts):
 
-- **Daily / custom tasks** — remind at the task's own time when set, else the
-  section schedule's start time, else the global daily time (default 09:00), on
-  every day the task occurs.
-- **Reminder (remainder) tasks** — with a due date: remind on the due date and
-  every day it stays overdue. Without one: once a week on the chosen weekend day
-  (default Saturday) at the chosen time (default 10:00).
-- **Occasional tasks** — with a due date: same as above. Without one: on the 1st
-  and 15th of the month (configurable) at the chosen time.
-- A reminder whose moment already passed **today** while the app was closed is
-  armed once at `now + 15 min` (catch-up); a past moment for another day is
-  skipped, because that day's chance has gone.
-- Snoozing a reminder in the app replaces that task's alarm for today with one
-  at the snooze time (the user's explicit wish beats the schedule).
-- Done/logged for that day → that day's reminder is skipped.
-- No scores, no cooldowns, no quiet-hours gating, no "already notified" gate on
-  the scheduled path. One alarm per task per day.
+- **Daily tasks** — one MEDIUM reminder at the task's time (own time → section
+  start → default 09:00), plus at most one day-level later check-in at 17:00
+  while work is open. Silent once completed or logged for the day.
+- **Reminder (remainder) tasks** — one MEDIUM weekly check-in on the chosen
+  weekend day while incomplete; permanent silence after completion. With a due
+  date: HIGH due/overdue reminders instead.
+- **Occasional tasks** — HIGH due/overdue reminders when dated; otherwise a LOW
+  twice-a-month check-in (1st and 15th).
+- **Custom sections** — recurrence is asked of the section
+  (`isSectionActiveOnDate`), never re-implemented per task. Inactive section →
+  no reminders.
+- **Explicit user reminders** (`task.remindAt`, or a per-task `notifyTime`) —
+  HIGH, fire exactly when asked, never suppressed by quiet hours.
+- **Priority** — HIGH supersedes MEDIUM/LOW; a task already given a HIGH
+  reminder that day is not mentioned again.
+- **No barrage** — reminders that share a moment are grouped into one
+  notification ("3 tasks planned: DSA, ML, Reading"); same reason never fires
+  twice in a day.
+- **Quiet hours 22:30 → 07:00** — ordinary (MEDIUM/LOW) reminders skip the
+  window; important and user-created ones do not.
+- **Activity reset** — a check-in stays quiet within 30 minutes of meaningful
+  activity; completing/logging a task cancels that day's routine reminders on
+  the next sync.
+- A passed moment **today** is re-armed once at `now + 15 min` (never for LOW
+  reminders); a past moment on another day is dropped.
+- Snoozing replaces that task's reminder for today with the snooze moment.
 - Every sync is serialized; permission is re-read live; unchanged alarms are not
   cancelled.
 
@@ -233,9 +243,21 @@ Reconciliation (the part that keeps re-syncs from lying):
 - `resyncNative` schedules before cancelling, and only cancels ids that are not
   in the new set — a failure or process death can no longer empty the queue.
 
-Documented limits: reminders cover the next 7 days, so an app untouched for
-longer stops at day 7 (worst-case OEM/doze delays can shift an inexact alarm by
-the system's window).
+The native queue is deliberately short: the evaluator reasons over a 7-day
+horizon, but only the **next meaningful reminders** are armed — at most 12, all
+within 48 hours. A fired reminder is never immediately replaced; the next
+reconciliation (launch, resume, task/section/settings change, 60 s tick) arms
+what comes next. This avoids both an infinite stream and a queue that dies when
+the app is not opened for a day.
+
+Reconciliation triggers, all of which run the same single reconciler: app
+launch, app resume, task create/edit/delete/complete, meaningful time log,
+accomplish, custom-section create/edit/delete (a section's schedule owns the
+reminder days of its tasks), and any reminder-settings change.
+
+Documented limits: an app untouched for more than 48 hours runs out of armed
+reminders (the next open re-arms them); worst-case OEM/doze delays can shift an
+inexact alarm by the system's window.
 
 ## 8. Tests required
 

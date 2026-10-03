@@ -6,7 +6,7 @@ import { liveDayRec } from "./performance";
 import { applyRecoveryKinds } from "./activity";
 import { COOLDOWN_OPTIONS, NOTIFICATION_DEFAULTS } from "./config";
 import { planNotifications, notificationMessage } from "./notifications/engine";
-import { planUpcomingReminders } from "./notifications/planner";
+import { evaluateReminder, selectNativeSchedule } from "./notifications/planner";
 import {
   DEFAULT_FOCUS_SETTINGS,
   advancePhase,
@@ -37,6 +37,8 @@ import {
   scheduleRecords,
   cancelNative,
   getPendingIds,
+  reconcileTracked,
+  uniqueNativeIds,
   requestExactAlarmAccess as openExactAlarmSettings,
   getNativeDiagnostics,
   sendTestNotification,
@@ -98,6 +100,8 @@ export interface TaskInput {
   schedule?: Schedule;
   /** Advanced per-task local "HH:MM" reminder time. */
   notifyTime?: string;
+  /** Explicit one-shot reminder (ISO timestamp) — the "Remind me" option. */
+  remindAt?: string;
 }
 
 export interface SectionInput {
@@ -437,7 +441,9 @@ function recordAtMs(value: unknown): number {
  */
 /** Reconciliation inputs: what Android really holds + what already fired. */
 interface ScheduleReconciliation {
-  /** Tracked records still present in Android's pending list. */
+  /** Every record we believe was handed to Android (for metadata carry-over). */
+  existing: NativeNotifRecord[];
+  /** Tracked records still present in Android's saved pending list. */
   anchored: NativeNotifRecord[];
   /** Keys of reminders already delivered today — never armed twice. */
   firedKeys: Set<string>;
@@ -449,59 +455,60 @@ function buildNativeSchedule(
   recon: ScheduleReconciliation,
 ): { records: NativeNotifRecord[]; skipped: { taskId: string; date: string; reason: string }[] } {
   const s = get();
-  const plan = planUpcomingReminders({
+  const today = dateKey(now);
+
+  // Every product rule (per-type semantics, priority, quiet hours, snoozes,
+  // activity cooldown) lives in `evaluateReminder` — this function only adapts
+  // its output to the native record shape.
+  const plan = evaluateReminder({
     now,
     tasks: s.tasks,
     logs: s.logs,
     sections: s.sections,
     settings: s.notificationSettings,
+    lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
+    firedKeys: recon.firedKeys,
+    snoozes: s.notifications
+      .filter(
+        (n) =>
+          n.status === "snoozed" &&
+          n.date === today &&
+          n.snoozedUntil !== undefined &&
+          new Date(n.snoozedUntil).getTime() > now.getTime(),
+      )
+      .map((n) => ({ taskId: n.taskId, at: new Date(n.snoozedUntil!) })),
   });
 
-  const today = dateKey(now);
-  const nowMs = now.getTime();
+  // Only the next meaningful reminders are armed — never a week-long stream.
+  const selected = selectNativeSchedule(plan.records, now);
+  // Deterministic, collision-free Android ids (same key → same alarm).
+  const ids = uniqueNativeIds(selected.map((r) => r.key));
 
-  // Snooze is an explicit user wish ("remind me again in 30 minutes"), so it is
-  // honoured here: a snoozed task's today reminder is replaced by one alarm at
-  // `snoozedUntil`, never doubled up with the scheduled one.
-  const snoozed = s.notifications.filter(
-    (n) =>
-      n.status === "snoozed" &&
-      n.date === today &&
-      n.snoozedUntil !== undefined &&
-      new Date(n.snoozedUntil).getTime() > nowMs,
-  );
-  const snoozedTaskIds = new Set(snoozed.map((n) => n.taskId));
-
-  const records: NativeNotifRecord[] = plan.records
-    .filter((r) => !recon.firedKeys.has(r.key))
-    .filter((r) => !(r.date === today && snoozedTaskIds.has(r.taskId)))
-    .map((r) => {
-      // A catch-up moment must not slide forward on every sync: if Android still
-      // holds this alarm, keep the moment it was armed with.
-      const anchor = r.catchUp
-        ? recon.anchored.find((a) => a.key === r.key)
-        : undefined;
-      const anchorAt = anchor ? recordAtMs(anchor.at) : Number.NaN;
-      return {
-        id: nativeIdForKey(r.key),
-        key: r.key,
-        title: r.title,
-        body: r.body,
-        at: Number.isFinite(anchorAt) ? new Date(anchorAt) : r.at,
-      };
-    });
-
-  for (const n of snoozed) {
-    const task = s.tasks.find((t) => t.id === n.taskId);
-    if (!task) continue;
-    records.push({
-      id: nativeIdForKey(`snooze:${n.id}`),
-      key: `snooze:${n.id}`,
-      title: task.title,
-      body: notificationMessage(n, task.title),
-      at: new Date(n.snoozedUntil!),
-    });
-  }
+  const records: NativeNotifRecord[] = selected.map((r) => {
+    // A catch-up moment must not slide forward on every sync: if Android still
+    // holds this alarm, keep the moment it was armed with.
+    const anchor = r.catchUp ? recon.anchored.find((a) => a.key === r.key) : undefined;
+    const anchorAt = anchor ? recordAtMs(anchor.at) : Number.NaN;
+    const at = Number.isFinite(anchorAt) ? new Date(anchorAt) : r.at;
+    const existing = recon.existing.find((e) => e.key === r.key);
+    return {
+      id: ids.get(r.key)!,
+      key: r.key,
+      title: r.title,
+      body: r.body,
+      at,
+      priority: r.priority,
+      meta: {
+        type: r.type,
+        taskIds: r.taskIds,
+        sectionIds: r.sectionIds,
+        fireAt: at.toISOString(),
+        // "Created" means when this logical reminder was first planned, so it
+        // survives re-syncs instead of resetting on every app open.
+        createdAt: existing?.meta?.createdAt ?? now.toISOString(),
+      },
+    };
+  });
 
   records.sort((a, b) => a.at.getTime() - b.at.getTime());
   return { records, skipped: plan.skipped };
@@ -567,6 +574,9 @@ async function armFocusAlarm(session: FocusSession, settings: FocusSettings): Pr
           ? "Nice work. Step away for a moment."
           : "Ready for the next focus session?",
       at,
+      // A Pomodoro boundary is time-critical and user-started: worth an exact
+      // alarm when the user has already granted that access.
+      priority: "high",
     },
   ]);
 }
@@ -630,11 +640,14 @@ export interface DecisionDiagnostics {
 }
 
 const REASON_COPY: Record<string, string> = {
-  task_time: "Scheduled task time.",
+  user_reminder: "A reminder you created yourself.",
+  snoozed: "A reminder you snoozed.",
   due_today: "Task is due today.",
   overdue: "Task is overdue.",
-  weekend: "Weekly check-in on the chosen weekend day.",
-  monthly: "Monthly check-in on the chosen day of the month.",
+  scheduled_task: "A daily/section task is scheduled.",
+  weekly_checkin: "Weekly check-in for a Reminder task.",
+  monthly_checkin: "Gentle monthly check-in for an Occasional task.",
+  remaining_work: "Work is still planned for today.",
   nothing_due: "Nothing is due in the reminder horizon.",
   notifications_disabled: "Task reminders are switched off for this app.",
 };
@@ -650,14 +663,17 @@ function describeDayPlan(
   native: NativeDiagnostics,
 ): DecisionDiagnostics {
   const now = new Date();
-  const plan = planUpcomingReminders({
+  const plan = evaluateReminder({
     now,
     tasks: s.tasks,
     logs: s.logs,
     sections: s.sections,
     settings: s.notificationSettings,
+    lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
   });
-  const next = plan.records[0] ?? null;
+  // Report what is actually armed, not the whole evaluated horizon.
+  const armed = selectNativeSchedule(plan.records, now);
+  const next = armed[0] ?? null;
   const pending = [...native.pending]
     .filter((p) => p.at)
     .sort((a, b) => (a.at! < b.at! ? -1 : 1));
@@ -668,7 +684,7 @@ function describeDayPlan(
       : "notifications_disabled";
 
   return {
-    plannedCount: plan.records.length,
+    plannedCount: armed.length,
     reason,
     explanation: REASON_COPY[reason] ?? reason,
     taskTitle: next?.title ?? null,
@@ -732,19 +748,17 @@ async function syncNativeOnce(get: GetFn, set: SetFn): Promise<void> {
     if (key.endsWith(`:${today}`)) fired[key] = at;
   }
 
-  // Reconcile against what Android truly holds: a tracked alarm that is gone
-  // either fired or was dropped by the system. Either way it must not be armed
-  // again for the same day.
+  // Reconcile against the plugin's saved pending list: a tracked alarm that is
+  // gone either fired or was dropped. Either way it must not be armed again for
+  // the same day. (See `reconcileTracked` for the exact semantics.)
   const pendingIds = tracked.length > 0 ? await getPendingIds() : new Set<number>();
-  const anchored = tracked.filter((t) => pendingIds.has(t.id));
-  for (const t of tracked) {
-    if (!pendingIds.has(t.id) && recordAtMs(t.at) <= now.getTime()) {
-      fired[t.key] = now.toISOString();
-    }
-  }
+  const reconciled = reconcileTracked(tracked, pendingIds, now);
+  const anchored = reconciled.anchored;
+  for (const key of reconciled.firedKeys) fired[key] = now.toISOString();
   const firedChanged = JSON.stringify(fired) !== JSON.stringify(storedFired);
 
   const { records, skipped } = buildNativeSchedule(get, now, {
+    existing: tracked,
     anchored,
     firedKeys: new Set(Object.keys(fired)),
   });
@@ -1094,6 +1108,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
       priority: input.priority,
       schedule: input.schedule,
       notifyTime: input.notifyTime?.trim() || undefined,
+      remindAt: input.remindAt || undefined,
       status: "active",
       createdAt: new Date().toISOString(),
     };
@@ -1285,7 +1300,12 @@ export const useStore = create<MomentumState>()((set, get) => ({
       createdAt: new Date().toISOString(),
     };
     set((s) => ({ sections: [...s.sections, section] }));
-    db.sections.add(section).catch(logError("create section"));
+    // Section changes are a reconciliation trigger: a section's schedule owns
+    // the days its tasks are reminded on.
+    db.sections
+      .add(section)
+      .then(() => Promise.all([get().syncNotifications(), get().syncNativeNotifications()]))
+      .catch(logError("create section"));
   },
 
   updateCustomSection: (id, patch) => {
@@ -1293,13 +1313,19 @@ export const useStore = create<MomentumState>()((set, get) => ({
     if (!section) return;
     const next = { ...section, ...patch, name: patch.name?.trim() || section.name };
     set((s) => ({ sections: s.sections.map((x) => (x.id === id ? next : x)) }));
-    db.sections.put(next).catch(logError("update section"));
+    db.sections
+      .put(next)
+      .then(() => Promise.all([get().syncNotifications(), get().syncNativeNotifications()]))
+      .catch(logError("update section"));
   },
 
   removeCustomSection: (id) => {
     if (get().tasks.some((t) => t.customSectionId === id)) return;
     set((s) => ({ sections: s.sections.filter((x) => x.id !== id) }));
-    db.sections.delete(id).catch(logError("delete section"));
+    db.sections
+      .delete(id)
+      .then(() => Promise.all([get().syncNotifications(), get().syncNativeNotifications()]))
+      .catch(logError("delete section"));
   },
 
   /* --------------------------- Hobby & Notes ------------------------- */
@@ -1858,6 +1884,11 @@ export const useStore = create<MomentumState>()((set, get) => ({
   refreshNotificationDiagnostics: async () => {
     const diagnostics = await getNativeDiagnostics();
     set({ notificationDiagnostics: diagnostics });
+    if (diagnostics.channelBlocked) {
+      // Android would silently drop every post to a channel the user switched
+      // off — the one failure that looks identical to "the scheduler never ran".
+      devLog("notification channel is blocked by the user", diagnostics.channelId);
+    }
     if (diagnostics.permission !== get().notificationPermission) {
       set({ notificationPermission: diagnostics.permission });
       await writeMetaValue("notificationPermissionState", diagnostics.permission);

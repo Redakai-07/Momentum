@@ -35,6 +35,8 @@ export interface NotificationSettings {
 
   /** Default time for daily/custom tasks without a time of their own. */
   dailyReminderTime: string;
+  /** One calm later check-in time for a day whose plan is still open. */
+  followUpTime: string;
   /** Weekend day (Date#getDay()) for Reminder-section work without a due date. */
   remainderWeekday: number;
   /** Local "HH:MM" for that weekly reminder. */

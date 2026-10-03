@@ -75,6 +75,12 @@ export interface Task {
    * default (see lib/notifications/planner.ts).
    */
   notifyTime?: string;
+  /**
+   * Explicit, user-created one-shot reminder (ISO timestamp). Highest-priority
+   * notification: it fires at the chosen moment and is never blocked by quiet
+   * hours. Optional, and never set by default.
+   */
+  remindAt?: string;
   status: TaskStatus;
   createdAt: string;
   completedAt?: string;

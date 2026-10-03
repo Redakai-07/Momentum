@@ -3,8 +3,10 @@ import {
   nativeIdForKey,
   notificationSchema,
   checkPermission,
+  reconcileTracked,
   sendTestNotification,
   sendWelcomeNotification,
+  uniqueNativeIds,
   type NativeNotifRecord,
 } from "./service";
 
@@ -43,10 +45,29 @@ describe("notificationSchema — alarms must never depend on special access", ()
   });
 
   it("upgrades to exact only when the user already granted access", () => {
-    const schema = notificationSchema(record(), "granted", NOW);
+    const schema = notificationSchema(record({ priority: "high" }), "granted", NOW);
     expect(schema.isExactNotification).toBe(true);
     // Never mandatory: a missing permission must degrade, not reject the call.
     expect(schema.isExactMandatory).toBe(false);
+  });
+
+  it("never asks for exact alarms on ordinary reminders", () => {
+    for (const priority of ["medium", "low"] as const) {
+      const schema = notificationSchema(record({ priority }), "granted", NOW);
+      expect(schema.isExactNotification).toBe(false);
+    }
+  });
+
+  it("carries the planner metadata as `extra` so a delivery can be traced", () => {
+    const meta = {
+      type: "daily",
+      taskIds: ["dsa"],
+      sectionIds: ["daily"],
+      fireAt: new Date(NOW + 60_000).toISOString(),
+      createdAt: new Date(NOW).toISOString(),
+    };
+    const schema = notificationSchema(record({ meta }), "denied", NOW);
+    expect(schema.extra).toEqual(meta);
   });
 
   it("targets the Momentum Reminders channel so Android can post it", () => {
@@ -78,6 +99,59 @@ describe("nativeIdForKey", () => {
       expect(id).toBeGreaterThanOrEqual(0);
       expect(id).toBeLessThanOrEqual(0x7fffffff);
     }
+  });
+});
+
+describe("uniqueNativeIds", () => {
+  it("keeps ids stable for the same key set, whatever the order", () => {
+    const keys = ["a:2026-09-14", "b:2026-09-14", "group:daily:2026-09-14:9"];
+    const first = uniqueNativeIds(keys);
+    const shuffled = uniqueNativeIds([...keys].reverse());
+    for (const key of keys) {
+      expect(shuffled.get(key)).toBe(first.get(key));
+      expect(first.get(key)).toBe(nativeIdForKey(key));
+    }
+  });
+
+  it("never hands two different reminders the same Android id", () => {
+    // Large enough that raw hash collisions occur; uniqueness must survive them.
+    const keys = Array.from({ length: 150_000 }, (_, i) => `task-${i}:2026-09-14`);
+    const ids = uniqueNativeIds(keys);
+    expect(ids.size).toBe(keys.length);
+    expect(new Set(ids.values()).size).toBe(keys.length);
+  });
+});
+
+describe("reconcileTracked", () => {
+  const now = new Date(2026, 8, 14, 10, 0);
+
+  it("treats records still in the saved list as anchored", () => {
+    const tracked = [record({ id: 7, key: "a:2026-09-14", at: new Date(2026, 8, 14, 9, 0) })];
+    const { anchored, firedKeys } = reconcileTracked(tracked, new Set([7]), now);
+    expect(anchored).toHaveLength(1);
+    expect(firedKeys).toHaveLength(0);
+  });
+
+  it("treats a vanished past record as fired — it must not be re-armed", () => {
+    const tracked = [record({ id: 7, key: "a:2026-09-14", at: new Date(2026, 8, 14, 9, 0) })];
+    const { anchored, firedKeys } = reconcileTracked(tracked, new Set(), now);
+    expect(anchored).toHaveLength(0);
+    expect(firedKeys).toEqual(["a:2026-09-14"]);
+  });
+
+  it("treats a vanished future record as neither — the next sync re-arms it", () => {
+    const tracked = [record({ id: 7, key: "a:2026-09-14", at: new Date(2026, 8, 14, 17, 0) })];
+    const { anchored, firedKeys } = reconcileTracked(tracked, new Set(), now);
+    expect(anchored).toHaveLength(0);
+    expect(firedKeys).toHaveLength(0);
+  });
+
+  it("tolerates timestamps that round-tripped through IndexedDB as strings", () => {
+    const tracked = [
+      record({ id: 7, key: "a", at: "2026-09-14T09:00:00.000Z" as unknown as Date }),
+    ];
+    const { firedKeys } = reconcileTracked(tracked, new Set(), new Date("2026-09-14T10:00:00.000Z"));
+    expect(firedKeys).toEqual(["a"]);
   });
 });
 

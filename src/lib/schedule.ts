@@ -34,6 +34,18 @@ function occurrenceIndex(occurrence: MonthOccurrence, count: number): number | n
   return count > 0 ? count - 1 : null;
 }
 
+/**
+ * The single source of truth for "is this section active on this date?".
+ *
+ * Section recurrence lives on the section (daily, selected weekdays, monthly
+ * date, monthly last day, monthly weekday occurrence); tasks inherit it. Any
+ * reminder decision about a custom-section task must ask this question rather
+ * than re-implementing recurrence per task.
+ */
+export function isSectionActiveOnDate(section: CustomSection, date: Date): boolean {
+  return scheduleOccursOn(section.schedule, date);
+}
+
 /** Resolve the section-owned schedule, retaining legacy task schedules safely. */
 export function scheduleForTask(task: Task, sections: CustomSection[] = []): Schedule | null {
   // Existing installs may have per-task recurrence. Keep it authoritative for

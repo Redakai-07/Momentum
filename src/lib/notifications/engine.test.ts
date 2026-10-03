@@ -18,6 +18,7 @@ const at = (key: string, h: number, m = 0): Date => {
 const settings: NotificationSettings = {
   enabled: true,
   dailyReminderTime: "09:00",
+  followUpTime: "17:00",
   remainderWeekday: 6,
   remainderTime: "10:00",
   occasionalDays: [1, 15],

@@ -654,6 +654,55 @@ export function ProfileView() {
                 />
               </div>
 
+              <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-[13.5px] font-medium text-foreground">Later check-in</p>
+                  <p className="text-xs text-muted-foreground">
+                    One calm nudge if the day&apos;s plan is still open.
+                  </p>
+                </div>
+                <input
+                  type="time"
+                  value={notificationSettings.followUpTime}
+                  onChange={(e) => setNotificationSettings({ followUpTime: e.target.value })}
+                  aria-label="Later check-in time"
+                  className="h-8 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                />
+              </div>
+
+              <ToggleRow
+                checked={notificationSettings.quietHoursEnabled}
+                onChange={(v) => setNotificationSettings({ quietHoursEnabled: v })}
+                label="Quiet hours"
+                sub="No ordinary reminders while you sleep. Your own reminders still fire."
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-[13.5px] font-medium text-foreground">Quiet hours window</p>
+                  <p className="text-xs text-muted-foreground">
+                    Ordinary reminders never land between these times.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <input
+                    type="time"
+                    value={notificationSettings.quietStart}
+                    onChange={(e) => setNotificationSettings({ quietStart: e.target.value })}
+                    aria-label="Quiet hours start"
+                    className="h-8 min-w-0 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  />
+                  <span className="text-xs text-muted-foreground">→</span>
+                  <input
+                    type="time"
+                    value={notificationSettings.quietEnd}
+                    onChange={(e) => setNotificationSettings({ quietEnd: e.target.value })}
+                    aria-label="Quiet hours end"
+                    className="h-8 min-w-0 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  />
+                </div>
+              </div>
+
               <PermissionRow />
 
               <p className="py-3 text-xs leading-relaxed text-muted-foreground">

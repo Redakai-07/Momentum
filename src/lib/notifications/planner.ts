@@ -1,59 +1,83 @@
 /**
- * The ONE reminder planner.
+ * Momentum's reminder philosophy, expressed as one pure module.
  *
- * Answers exactly one question, deterministically: "which concrete reminders
- * should Android hold, and when do they fire?" Its output is the native alarm
- * queue — nothing else in the app decides delivery.
+ * This is the ONLY place that decides whether a reminder is appropriate. UI
+ * components never schedule notifications; the store never invents one. Every
+ * reminder Moventum arms comes from `evaluateReminder(context)`.
  *
- * Deliberately boring rules (see docs/notification-audit.md §7):
+ * The product rules (and their reasons) in brief:
  *
- *   - daily / custom tasks  → their own time (task.notifyTime → section start
- *     time → global daily time) on every day the task occurs.
- *   - reminder tasks        → due date (and every day overdue), or once a week
- *     on the chosen weekend day when no due date exists.
- *   - occasional tasks      → due date (and every day overdue), or the chosen
- *     days of the month when no due date exists.
+ * - **Daily tasks** are expected every day: one reminder at their time, plus at
+ *   most one later day-level check-in. Never repeatedly, never after they are
+ *   done.
+ * - **Reminder tasks** are not daily: they get one weekly check-in while
+ *   incomplete, and stop for good once completed.
+ * - **Occasional tasks** use their due date. Without one they get a gentle
+ *   twice-a-month check-in — never an aggressive repeating schedule.
+ * - **Custom sections** own their recurrence: a task is only considered on days
+ *   its section is active (`isSectionActiveOnDate`).
+ * - **Explicit user reminders** (`task.remindAt`, or a time the user typed on
+ *   the task) always win, and are never blocked by quiet hours.
+ * - **Motivational** nudges are rare, grounded in real remaining work, and
+ *   never shame anyone.
  *
- * No scores, no cooldowns, no quiet-hours gating, no "already notified" gates.
- * A reminder that already happened today while the app was closed is armed once
- * at `now + CATCH_UP_LEAD_MINUTES`; a passed moment for another day is skipped.
- *
- * The planner is pure — same input, same output — so every rule above is
- * covered by unit tests (planner.test.ts).
+ * Priority: HIGH (user reminder / due / overdue) > MEDIUM (daily, section,
+ * weekly) > LOW (occasional check-in). One reminder per task per day, highest
+ * priority wins; reminders that would fire together are grouped instead of
+ * becoming a barrage.
  */
 
 import { NOTIFICATION_DEFAULTS } from "../config";
 import { addDays, dateKey } from "../date";
-import { scheduleForTask, taskOccursOn } from "../schedule";
-import { isTaskDoneOn } from "../task-state";
+import { formatMinutes } from "../format";
+import { isSectionActiveOnDate, scheduleForTask, scheduleOccursOn } from "../schedule";
+import { isTimedTask } from "../duration";
+import { isTaskDoneOn, remainingOn } from "../task-state";
 import type { CustomSection, Task, TimeLog } from "../types";
 import type { NotificationSettings } from "./types";
 
-export type ReminderReason =
-  | "task_time"
-  | "due_today"
-  | "overdue"
-  | "weekend"
-  | "monthly";
+export type ReminderPriority = "high" | "medium" | "low";
 
-export interface ReminderPlanContext {
-  now: Date;
-  tasks: Task[];
-  logs: TimeLog[];
-  sections?: CustomSection[];
-  settings: NotificationSettings;
+export type ReminderType =
+  | "explicit"
+  | "due"
+  | "overdue"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "follow_up";
+
+export const PRIORITY_RANK: Record<ReminderPriority, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
+
+/** The decision for one task on one day. */
+export interface ReminderDecision {
+  shouldNotify: boolean;
+  type: ReminderType | null;
+  priority: ReminderPriority | null;
+  reason: string;
+  taskId: string | null;
+  sectionId: string | null;
+  suggestedFireTime: Date | null;
 }
 
 export interface PlannedReminder {
-  /** Stable identity: one reminder per task per day. */
+  /** Stable identity. Same task/type/moment implies the same alarm id. */
   key: string;
-  taskId: string;
+  taskIds: string[];
+  /** Sections this reminder belongs to ("daily", "remainder", a section id…). */
+  sectionIds: string[];
   /** Local calendar day the reminder belongs to (YYYY-MM-DD). */
   date: string;
   title: string;
   body: string;
   at: Date;
-  reason: ReminderReason;
+  type: ReminderType;
+  priority: ReminderPriority;
+  reason: string;
   /** True when a passed moment was re-armed for later today. */
   catchUp: boolean;
 }
@@ -70,12 +94,45 @@ export interface ReminderPlan {
   skipped: SkippedReminder[];
 }
 
-/** How many days ahead alarms are armed (today + 6). */
+export interface ReminderContext {
+  now: Date;
+  tasks: Task[];
+  logs: TimeLog[];
+  sections?: CustomSection[];
+  settings: NotificationSettings;
+  /** ISO of the last completion / logged minutes / focus session. */
+  lastMeaningfulActivityAt?: string | null;
+  /** Reminder keys already delivered today (from native reconciliation). */
+  firedKeys?: ReadonlySet<string>;
+  /** In-app snoozes; they replace today's record for that task. */
+  snoozes?: { taskId: string; at: Date }[];
+}
+
+/** How many days the evaluator reasons about (today + 6). */
 export const REMINDER_HORIZON_DAYS = 6;
-/** Upper bound on armed alarms — keeps the queue sane on busy accounts. */
+/** Upper bound on evaluated records. */
 export const MAX_REMINDER_RECORDS = 40;
+/**
+ * How far ahead alarms are actually armed. The queue is deliberately not an
+ * infinite stream: only the next meaningful reminders are handed to Android,
+ * and each later evaluation arms the next one. 48 hours still covers "the app
+ * was not opened today" without queueing a week of notifications.
+ */
+export const NATIVE_HORIZON_HOURS = 48;
+/** Hard cap on armed alarms. */
+export const MAX_NATIVE_RECORDS = 12;
 /** When today's moment has passed, re-arm this far ahead. */
 export const CATCH_UP_LEAD_MINUTES = 15;
+/** Don't notify within this long after real activity. */
+export const ACTIVITY_COOLDOWN_MINUTES = 30;
+/** A low-priority reminder never fires this close to another one. */
+export const SUPPRESS_WINDOW_MINUTES = 90;
+
+const MIN = 60_000;
+
+/* ------------------------------------------------------------------ */
+/* Time helpers                                                        */
+/* ------------------------------------------------------------------ */
 
 /** Local "HH:MM" → {h, m}, or null when malformed. */
 export function parseHHMM(value: string | undefined): { h: number; m: number } | null {
@@ -94,162 +151,508 @@ function atLocal(day: Date, hhmm: string): Date | null {
   return new Date(day.getFullYear(), day.getMonth(), day.getDate(), parsed.h, parsed.m);
 }
 
+/** True inside the quiet-hours window (may wrap midnight). */
+export function isQuietHours(at: Date, settings: NotificationSettings): boolean {
+  if (!settings.quietHoursEnabled) return false;
+  const start = parseHHMM(settings.quietStart);
+  const end = parseHHMM(settings.quietEnd);
+  if (start === null || end === null) return false;
+  const startMin = start.h * 60 + start.m;
+  const endMin = end.h * 60 + end.m;
+  if (startMin === endMin) return false;
+  const mins = at.getHours() * 60 + at.getMinutes();
+  if (startMin < endMin) return mins >= startMin && mins < endMin;
+  return mins >= startMin || mins < endMin;
+}
+
+const ms = (iso: string | null | undefined): number | null => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+/* ------------------------------------------------------------------ */
+/* Per-task decision                                                   */
+/* ------------------------------------------------------------------ */
+
+interface TimeChoice {
+  hhmm: string;
+  /** A time the user typed themselves — quiet hours do not block it. */
+  explicit: boolean;
+}
+
 /**
  * The time a task's reminder fires at.
  *
- * Order: the task's own explicit time, then its section/schedule start time
- * (the moment the user already told Momentum the work begins), then the
- * global default. Never returns null: an unparseable anything falls back to
- * the global time, which is always validated by `mergeSettings`.
+ * Order: the task's own time (explicit), then its section/schedule start time,
+ * then the section default from settings.
  */
 export function reminderTimeFor(
   task: Task,
   settings: NotificationSettings,
   sections: CustomSection[] = [],
-): string {
-  const explicit = parseHHMM(task.notifyTime) ? task.notifyTime! : null;
-  if (explicit) return explicit;
+): TimeChoice {
+  if (parseHHMM(task.notifyTime)) return { hhmm: task.notifyTime!, explicit: true };
   if (task.section === "daily" || task.section === "custom") {
     const start = scheduleForTask(task, sections)?.startTime;
-    if (parseHHMM(start)) return start!;
-    return settings.dailyReminderTime;
+    if (parseHHMM(start)) return { hhmm: start!, explicit: false };
+    return { hhmm: settings.dailyReminderTime, explicit: false };
   }
-  if (task.section === "remainder") return settings.remainderTime;
-  return settings.occasionalTime;
+  if (task.section === "remainder") return { hhmm: settings.remainderTime, explicit: false };
+  return { hhmm: settings.occasionalTime, explicit: false };
 }
 
-function bodyFor(reason: ReminderReason, title: string): string {
-  switch (reason) {
-    case "overdue":
-      return `Still open — ${title} is overdue`;
-    case "due_today":
-      return `Due today — ${title}`;
-    case "weekend":
-      return `Weekend reminder — ${title}`;
-    case "monthly":
-      return `Monthly reminder — ${title}`;
-    case "task_time":
-      return `Time for ${title}`;
+/** Is the task present on `day` (before any done/logged filtering)? */
+function occursOnDay(task: Task, day: Date, sections: CustomSection[]): boolean {
+  if (task.section === "daily") return true;
+  if (task.section === "custom") {
+    // Legacy per-task schedules stay authoritative for old records; new tasks
+    // inherit the section's schedule.
+    if (task.schedule) return scheduleOccursOn(task.schedule, day);
+    const section = sections.find((s) => s.id === task.customSectionId);
+    return section ? isSectionActiveOnDate(section, day) : false;
   }
+  // One-offs are considered when they are due, overdue, or (for unscheduled
+  // Reminder/Occasional work) on their gentle check-in day.
+  return true;
 }
 
-/** The reminder for one task on one day, or null when the task is not due. */
-function planDayForTask(
+const SECTION_LEVEL_TYPES: ReminderType[] = ["daily", "weekly", "monthly"];
+
+interface TaskDayOutcome {
+  type: ReminderType;
+  priority: ReminderPriority;
+  reason: string;
+  at: Date;
+  explicitTime: boolean;
+}
+
+/**
+ * The rule table for one task on one day, or a reason it produces nothing.
+ *
+ * Precedence is deliberate: high-priority reasons are checked first, so a task
+ * can never attract both a due reminder and a routine one on the same day.
+ */
+function decideTaskDay(
   task: Task,
   day: Date,
   today: string,
-  loggedToday: Set<string>,
+  loggedToday: ReadonlySet<string>,
   settings: NotificationSettings,
   sections: CustomSection[],
-): { reason: ReminderReason; at: Date } | { skip: string } {
+): TaskDayOutcome | { skip: string } {
   const key = dateKey(day);
-  // `isTaskDoneOn` is the authority — NOT `status !== "active"`. A recurring
-  // task completed yesterday still carries status "completed" until a rollover,
-  // and the whole point of planning ahead is the case where the app is never
-  // opened to run that rollover.
   if (isTaskDoneOn(task, key)) {
     return { skip: task.status === "accomplished" ? "accomplished" : "done_on_day" };
   }
   if (key === today && loggedToday.has(task.id)) return { skip: "logged_today" };
 
+  /* 1. Explicit user-created one-shot reminder — highest priority. */
+  if (task.remindAt) {
+    const at = new Date(task.remindAt);
+    if (Number.isFinite(at.getTime()) && dateKey(at) === key) {
+      return { type: "explicit", priority: "high", reason: "user_reminder", at, explicitTime: true };
+    }
+  }
+
   const due = task.dueDate;
   const overdue = Boolean(due && due < key);
   const dueToday = due === key;
+  const time = reminderTimeFor(task, settings, sections);
+  const at = atLocal(day, time.hhmm);
+  if (!at) return { skip: "bad_time" };
 
-  let reason: ReminderReason | null = null;
-  if (task.section === "daily" || task.section === "custom") {
-    if (!taskOccursOn(task, key, sections)) return { skip: "not_scheduled" };
-    reason = overdue ? "overdue" : dueToday ? "due_today" : "task_time";
-  } else if (overdue || dueToday) {
-    reason = overdue ? "overdue" : "due_today";
-  } else if (task.section === "remainder") {
-    if (due) return { skip: "not_due" }; // dated work is reminded on its date
-    if (day.getDay() !== settings.remainderWeekday) return { skip: "not_weekend_day" };
-    reason = "weekend";
-  } else if (task.section === "occasional") {
-    if (due) return { skip: "not_due" };
-    if (!settings.occasionalDays.includes(day.getDate())) return { skip: "not_monthly_day" };
-    reason = "monthly";
-  } else {
-    return { skip: "unsupported_section" };
+  /* 2. Important due reminders — HIGH. */
+  if (overdue) {
+    if (!settings.overdueReminders) return { skip: "overdue_reminders_off" };
+    return { type: "overdue", priority: "high", reason: "overdue", at, explicitTime: time.explicit };
+  }
+  if (dueToday) {
+    if (!settings.specialTaskReminders) return { skip: "due_reminders_off" };
+    return { type: "due", priority: "high", reason: "due_today", at, explicitTime: time.explicit };
   }
 
-  // Per-section switches stay meaningful: scheduled/check-in reminders,
-  // due-today reminders and overdue reminders can be turned off independently.
-  const scheduledKind = reason === "task_time" || reason === "weekend" || reason === "monthly";
-  if (scheduledKind && !settings.taskReminders) return { skip: "task_reminders_off" };
-  if (reason === "due_today" && !settings.specialTaskReminders) return { skip: "due_reminders_off" };
-  if (reason === "overdue" && !settings.overdueReminders) return { skip: "overdue_reminders_off" };
+  /* 3. Section-level reminders — MEDIUM for daily/custom/weekly, LOW monthly. */
+  if (!settings.taskReminders) return { skip: "task_reminders_off" };
 
-  const at = atLocal(day, reminderTimeFor(task, settings, sections));
-  if (!at) return { skip: "bad_time" };
-  return { reason, at };
+  if (task.section === "daily" || task.section === "custom") {
+    if (!occursOnDay(task, day, sections)) return { skip: "section_inactive" };
+    return { type: "daily", priority: "medium", reason: "scheduled_task", at, explicitTime: time.explicit };
+  }
+
+  if (task.section === "remainder") {
+    // Dated Reminder tasks are handled by the due/overdue rules above; only
+    // undated ones get the weekly check-in.
+    if (due) return { skip: "not_due" };
+    if (day.getDay() !== settings.remainderWeekday) return { skip: "not_checkin_day" };
+    return { type: "weekly", priority: "medium", reason: "weekly_checkin", at, explicitTime: time.explicit };
+  }
+
+  if (task.section === "occasional") {
+    if (due) return { skip: "not_due" };
+    if (!settings.occasionalDays.includes(day.getDate())) return { skip: "not_checkin_day" };
+    return { type: "monthly", priority: "low", reason: "monthly_checkin", at, explicitTime: time.explicit };
+  }
+
+  return { skip: "unsupported_section" };
+}
+
+/* ------------------------------------------------------------------ */
+/* Day-level check-in                                                  */
+/* ------------------------------------------------------------------ */
+
+/** One calm "there is still work today" nudge — never a motivational spam. */
+function decideFollowUp(
+  pending: PlannedReminder[],
+  dayRecords: PlannedReminder[],
+  tasks: Task[],
+  day: Date,
+  today: string,
+  loggedToday: ReadonlySet<string>,
+  settings: NotificationSettings,
+  sections: CustomSection[],
+  lastMeaningfulActivityAt: string | null | undefined,
+): { at: Date; target: Task | null; remaining: number; sectionIds: string[] } | null {
+  if (!settings.taskReminders) return null;
+  const key = dateKey(day);
+  const at = atLocal(day, settings.followUpTime);
+  if (!at) return null;
+  // Ordinary nudges never land in quiet hours.
+  if (isQuietHours(at, settings)) return null;
+
+  // A task that already had a HIGH-priority reminder today (an explicit one, a
+  // due one, an overdue one) must not be mentioned again — higher priority
+  // supersedes lower. Routine reminders do not block the later check-in: the
+  // product explicitly wants the same daily task mentioned again if it is
+  // still open.
+  const alreadyMentioned = new Set(
+    [...pending, ...dayRecords]
+      .filter((r) => r.date === key && r.priority === "high")
+      .flatMap((r) => r.taskIds),
+  );
+  const candidates = tasks.filter(
+    (t) =>
+      (t.section === "daily" || t.section === "custom") &&
+      occursOnDay(t, day, sections) &&
+      !alreadyMentioned.has(t.id) &&
+      !isTaskDoneOn(t, key) &&
+      !(key === today && loggedToday.has(t.id)),
+  );
+  if (candidates.length === 0) return null;
+
+  const remaining = candidates.reduce(
+    (sum, t) => sum + (isTimedTask(t) ? remainingOn(t, key, loggedToday.has(t.id)) : 0),
+    0,
+  );
+  const anyUntimed = candidates.some((t) => !isTimedTask(t));
+  // A day of purely timed work with nothing left is finished — no nudge.
+  if (remaining <= 0 && !anyUntimed) return null;
+
+  // Never stack onto another reminder: higher priority supersedes.
+  const tooClose = [...pending, ...dayRecords].some(
+    (r) => r.date === key && Math.abs(r.at.getTime() - at.getTime()) < SUPPRESS_WINDOW_MINUTES * MIN,
+  );
+  if (tooClose) return null;
+
+  // No immediate nudge right after real activity.
+  const activity = ms(lastMeaningfulActivityAt);
+  if (activity !== null && at.getTime() - activity < ACTIVITY_COOLDOWN_MINUTES * MIN) return null;
+
+  const target = [...candidates].sort((a, b) => {
+    const ra = isTimedTask(a) ? remainingOn(a, key, loggedToday.has(a.id)) : 0;
+    const rb = isTimedTask(b) ? remainingOn(b, key, loggedToday.has(b.id)) : 0;
+    return rb - ra || a.title.localeCompare(b.title);
+  })[0];
+  return {
+    at,
+    target: target ?? null,
+    remaining,
+    sectionIds: [...new Set(candidates.map(sectionIdOf))],
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* The evaluator                                                       */
+/* ------------------------------------------------------------------ */
+
+/** The section a task belongs to, as a stable metadata string. */
+function sectionIdOf(task: Task): string {
+  if (task.section === "custom") return task.customSectionId ?? "custom";
+  return task.section;
+}
+
+function bodyFor(type: ReminderType, title: string, at: Date): string {
+  switch (type) {
+    case "explicit":
+      return `Reminder — ${title}`;
+    case "due":
+      return `Due today — ${title}`;
+    case "overdue":
+      return `Still open — ${title} is overdue`;
+    case "daily":
+      return at.getHours() < 12
+        ? `Good morning. Ready to make some progress on ${title}?`
+        : `Time for ${title}`;
+    case "weekly":
+      return `Weekly check-in — ${title}`;
+    case "monthly":
+      return `Monthly check-in — ${title}`;
+    case "follow_up":
+      return `Keep your momentum going — ${title} is still waiting.`;
+  }
 }
 
 /**
- * Plan every alarm Android should hold: the next `REMINDER_HORIZON_DAYS + 1`
- * days, one reminder per task per day, earliest first.
+ * Collapse section-level reminders that fire at the same moment.
+ *
+ * Ten daily tasks at the default 09:00 are one calm notification ("10 tasks
+ * planned: …"), never ten. Different moments stay separate reminders.
  */
-export function planUpcomingReminders(ctx: ReminderPlanContext): ReminderPlan {
+function groupReminders(records: PlannedReminder[]): PlannedReminder[] {
+  const out: PlannedReminder[] = [];
+  const groups = new Map<string, { record: PlannedReminder; titles: string[] }>();
+
+  for (const r of records) {
+    if (!SECTION_LEVEL_TYPES.includes(r.type)) {
+      out.push(r);
+      continue;
+    }
+    const key = `group:${r.type}:${r.date}:${r.at.getTime()}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.record.taskIds.push(...r.taskIds);
+      for (const s of r.sectionIds) {
+        if (!existing.record.sectionIds.includes(s)) existing.record.sectionIds.push(s);
+      }
+      existing.titles.push(r.title);
+      continue;
+    }
+    const merged: PlannedReminder = {
+      ...r,
+      key,
+      taskIds: [...r.taskIds],
+      sectionIds: [...r.sectionIds],
+    };
+    groups.set(key, { record: merged, titles: [r.title] });
+    out.push(merged);
+  }
+
+  for (const { record, titles } of groups.values()) {
+    if (titles.length > 1) {
+      record.title = "Today's plan";
+      const listed = titles.slice(0, 3).join(", ");
+      record.body = `${titles.length} tasks planned: ${listed}${
+        titles.length > 3 ? ` and ${titles.length - 3} more` : ""
+      }`;
+    }
+  }
+  return out;
+}
+
+/**
+ * Evaluate every reminder Momentum should arm for the next
+ * `REMINDER_HORIZON_DAYS + 1` days, earliest first.
+ *
+ * Deterministic: same context in, same plan out — every rule above is covered
+ * by planner.test.ts.
+ */
+export function evaluateReminder(ctx: ReminderContext): ReminderPlan {
   const { now, tasks, logs, sections = [] } = ctx;
   const settings: NotificationSettings = { ...NOTIFICATION_DEFAULTS, ...ctx.settings };
   const records: PlannedReminder[] = [];
   const skipped: SkippedReminder[] = [];
 
-  if (!settings.enabled) return { records: [], skipped };
+  if (!settings.enabled) return { records, skipped };
 
   const today = dateKey(now);
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const nowMs = now.getTime();
   const loggedToday = new Set(logs.filter((l) => l.date === today).map((l) => l.taskId));
+  const firedKeys = ctx.firedKeys ?? new Set<string>();
+  const snoozes = new Map(
+    (ctx.snoozes ?? [])
+      .filter((s) => s.at.getTime() > nowMs)
+      .map((s) => [s.taskId, s.at] as const),
+  );
 
   for (let offset = 0; offset <= REMINDER_HORIZON_DAYS; offset++) {
     const day = addDays(todayStart, offset);
     const key = dateKey(day);
+
+    // One reminder per task per day is a property of this loop.
+    const dayRecords: PlannedReminder[] = [];
+
     for (const task of tasks) {
-      const planned = planDayForTask(task, day, today, loggedToday, settings, sections);
-      if ("skip" in planned) {
-        skipped.push({ taskId: task.id, date: key, reason: planned.skip });
+      // A snoozed task's reminder for today is replaced at the end of the day.
+      if (key === today && snoozes.has(task.id)) continue;
+
+      const outcome = decideTaskDay(task, day, today, loggedToday, settings, sections);
+      if ("skip" in outcome) {
+        skipped.push({ taskId: task.id, date: key, reason: outcome.skip });
         continue;
       }
-      let at = planned.at;
+      // Quiet hours silence ordinary reminders only. A time the user chose for
+      // themselves, and important due/overdue reminders, are never suppressed.
+      if (
+        !outcome.explicitTime &&
+        outcome.priority !== "high" &&
+        isQuietHours(outcome.at, settings)
+      ) {
+        skipped.push({ taskId: task.id, date: key, reason: "quiet_hours" });
+        continue;
+      }
+
+      let at = outcome.at;
       let catchUp = false;
       if (at.getTime() <= nowMs + 1000) {
-        // The moment already passed. Today it can still be delivered once,
-        // a little later; any other day has gone.
-        if (key !== today) {
+        // A passed moment can still be delivered today — but only for
+        // meaningful reminders, and never for the gentle low-priority ones.
+        if (key !== today || outcome.priority === "low") {
           skipped.push({ taskId: task.id, date: key, reason: "moment_passed" });
           continue;
         }
-        at = new Date(nowMs + CATCH_UP_LEAD_MINUTES * 60_000);
+        at = new Date(nowMs + CATCH_UP_LEAD_MINUTES * MIN);
         catchUp = true;
       }
-      records.push({
+
+      dayRecords.push({
         key: `${task.id}:${key}`,
-        taskId: task.id,
+        taskIds: [task.id],
+        sectionIds: [sectionIdOf(task)],
         date: key,
         title: task.title,
-        body: bodyFor(planned.reason, task.title),
+        body: bodyFor(outcome.type, task.title, at),
         at,
-        reason: planned.reason,
+        type: outcome.type,
+        priority: outcome.priority,
+        reason: outcome.reason,
         catchUp,
       });
-      // `skipped` is diagnostics for work that produced nothing; once a record
-      // exists for the day, earlier skip notes about it are noise.
-      for (let i = skipped.length - 1; i >= 0; i--) {
-        if (skipped[i].taskId === task.id && skipped[i].date === key) skipped.splice(i, 1);
+    }
+
+    // The calm later check-in, once per day.
+    const followUp = decideFollowUp(
+      records,
+      dayRecords,
+      tasks,
+      day,
+      today,
+      loggedToday,
+      settings,
+      sections,
+      ctx.lastMeaningfulActivityAt,
+    );
+    if (followUp) {
+      dayRecords.push({
+        key: `follow_up:${key}`,
+        taskIds: followUp.target ? [followUp.target.id] : [],
+        sectionIds: followUp.sectionIds,
+        date: key,
+        title: "Momentum",
+        body:
+          followUp.remaining > 0
+            ? `You still have ${formatMinutes(followUp.remaining)} planned today — a small session keeps the momentum going.`
+            : `Still on today's list — a small session keeps the momentum going.`,
+        at: followUp.at,
+        type: "follow_up",
+        priority: "medium",
+        reason: "remaining_work",
+        catchUp: false,
+      });
+    }
+
+    // Snooze replaces today's schedule with the user's chosen moment.
+    if (key === today) {
+      for (const [taskId, at] of snoozes) {
+        const task = tasks.find((t) => t.id === taskId);
+        if (!task || isTaskDoneOn(task, today) || loggedToday.has(taskId)) continue;
+        for (let i = dayRecords.length - 1; i >= 0; i--) {
+          if (dayRecords[i].taskIds.includes(taskId)) dayRecords.splice(i, 1);
+        }
+        dayRecords.push({
+          key: `snooze:${taskId}:${today}`,
+          taskIds: [taskId],
+          sectionIds: [sectionIdOf(task)],
+          date: today,
+          title: task.title,
+          body: `Reminder — ${task.title}`,
+          at,
+          type: "explicit",
+          priority: "high",
+          reason: "snoozed",
+          catchUp: false,
+        });
       }
+    }
+
+    for (const r of groupReminders(dayRecords)) {
+      if (firedKeys.has(r.key)) continue;
+      records.push(r);
     }
   }
 
   records.sort((a, b) => a.at.getTime() - b.at.getTime());
+  return { records: records.slice(0, MAX_REMINDER_RECORDS), skipped };
+}
+
+/* ------------------------------------------------------------------ */
+/* Diagnostics                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The public per-task decision, in the shape the product spec asks for. Used
+ * by diagnostics and by tests; `evaluateReminder` is the planner built on it.
+ */
+export function evaluateTaskDay(
+  ctx: ReminderContext,
+  task: Task,
+  day: Date,
+): ReminderDecision {
+  const settings: NotificationSettings = { ...NOTIFICATION_DEFAULTS, ...ctx.settings };
+  const today = dateKey(ctx.now);
+  const loggedToday = new Set(
+    ctx.logs.filter((l) => l.date === today).map((l) => l.taskId),
+  );
+  const outcome = decideTaskDay(task, day, today, loggedToday, settings, ctx.sections ?? []);
+  if ("skip" in outcome) {
+    return {
+      shouldNotify: false,
+      type: null,
+      priority: null,
+      reason: outcome.skip,
+      taskId: task.id,
+      sectionId: task.customSectionId ?? null,
+      suggestedFireTime: null,
+    };
+  }
   return {
-    records: records.slice(0, MAX_REMINDER_RECORDS),
-    skipped,
+    shouldNotify: true,
+    type: outcome.type,
+    priority: outcome.priority,
+    reason: outcome.reason,
+    taskId: task.id,
+    sectionId: task.customSectionId ?? null,
+    suggestedFireTime: outcome.at,
   };
 }
 
-/** Tasks a plan points at, for diagnostics copy. */
-export function plannedTaskIds(plan: ReminderPlan): string[] {
-  return [...new Set(plan.records.map((r) => r.taskId))];
+/* ------------------------------------------------------------------ */
+/* Native selection                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The alarms that are actually handed to Android.
+ *
+ * Only the next meaningful reminders are armed — never an infinite stream.
+ * `evaluateReminder` still reasons across the full horizon so decisions and
+ * diagnostics stay honest; each later reconciliation arms whatever comes next
+ * (that is also why a fired reminder is never immediately replaced: the next
+ * evaluation decides, once it knows what was delivered).
+ */
+export function selectNativeSchedule(
+  records: PlannedReminder[],
+  now: Date,
+): PlannedReminder[] {
+  const limit = now.getTime() + NATIVE_HORIZON_HOURS * 60 * 60_000;
+  return records.filter((r) => r.at.getTime() <= limit).slice(0, MAX_NATIVE_RECORDS);
 }

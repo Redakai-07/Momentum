@@ -28,6 +28,22 @@ interface Props {
   defaultSection?: SectionKey;
 }
 
+/** ISO timestamp → the local "YYYY-MM-DDTHH:mm" a datetime-local input wants. */
+function toLocalInput(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Default new reminder: today at 19:00 local. */
+function defaultReminderInput(): string {
+  const d = new Date();
+  d.setHours(19, 0, 0, 0);
+  return toLocalInput(d.toISOString());
+}
+
 function initialSectionKey(task: Task | undefined, fallback: SectionKey): SectionKey {
   if (!task) return fallback;
   if (task.section === "custom") {
@@ -93,10 +109,16 @@ function TaskFormBody({
   const [description, setDescription] = useState(task?.description ?? "");
   const [nextAction, setNextAction] = useState(task?.nextAction ?? "");
   const [notifyTime, setNotifyTime] = useState(task?.notifyTime ?? "");
+  const [remindAt, setRemindAt] = useState(toLocalInput(task?.remindAt));
+  const remindOn = remindAt.length > 0;
   // Editing always reveals the details (due date, reminder time, …) — otherwise
   // a bare task could never be given one. Creating keeps them collapsed.
   const [detailsOpen, setDetailsOpen] = useState(
-    isEdit || Boolean(task && (task.description || task.nextAction || task.dueDate || task.notifyTime || task.priority !== undefined)),
+    isEdit ||
+      Boolean(
+        task &&
+          (task.description || task.nextAction || task.dueDate || task.notifyTime || task.remindAt || task.priority !== undefined),
+      ),
   );
 
   const pickSection = (key: SectionKey) => {
@@ -131,6 +153,7 @@ function TaskFormBody({
         dueDate: dueDate || undefined,
         priority,
         notifyTime: notifyTime || undefined,
+        remindAt: remindAt ? new Date(remindAt).toISOString() : undefined,
       });
     } else {
       addTask({
@@ -143,6 +166,7 @@ function TaskFormBody({
         dueDate: dueDate || undefined,
         priority,
         notifyTime: notifyTime || undefined,
+        remindAt: remindAt ? new Date(remindAt).toISOString() : undefined,
       });
     }
     onClose();
@@ -294,6 +318,34 @@ function TaskFormBody({
               </p>
             </Field>
           </div>
+
+          <Field label="Remind me once" hint="optional — a one-time reminder">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <label className="flex items-center gap-2 text-[13px] text-foreground/85">
+                <input
+                  type="checkbox"
+                  checked={remindOn}
+                  onChange={(e) =>
+                    setRemindAt(e.target.checked ? defaultReminderInput() : "")
+                  }
+                  className="h-4 w-4 rounded border-input accent-[var(--primary)]"
+                />
+                Remind me
+              </label>
+              {remindOn && (
+                <input
+                  type="datetime-local"
+                  value={remindAt}
+                  onChange={(e) => setRemindAt(e.target.value)}
+                  aria-label="Reminder date and time"
+                  className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                />
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              A reminder you set yourself always fires, even during quiet hours.
+            </p>
+          </Field>
 
           <Field label="Next action" hint="optional — the concrete next step">
             <Input

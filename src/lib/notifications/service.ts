@@ -42,9 +42,32 @@ export interface NativeNotifSpec {
   at: Date;
 }
 
+/** Planner priority. Only HIGH reminders may use an exact alarm. */
+export type NativePriority = "high" | "medium" | "low";
+
+/**
+ * Metadata carried with every armed reminder.
+ *
+ * Persisted alongside the pending list (so the plan is reconstructable after a
+ * restart) and passed to Android as `extra` (so a delivered notification can be
+ * traced back to the exact rule that produced it).
+ */
+export interface NativeNotifMeta {
+  /** Planner reminder type: explicit / due / overdue / daily / weekly / monthly / follow_up. */
+  type: string;
+  taskIds: string[];
+  sectionIds: string[];
+  /** ISO fire time. */
+  fireAt: string;
+  /** ISO of when this logical reminder was first planned. */
+  createdAt: string;
+}
+
 export interface NativeNotifRecord extends NativeNotifSpec {
   /** Logical dedupe identity, e.g. "task:dsa:start:2026-03-11". */
   key: string;
+  priority?: NativePriority;
+  meta?: NativeNotifMeta;
 }
 
 export type ExactAlarmState = "granted" | "denied" | "unknown";
@@ -246,6 +269,59 @@ export function nativeIdForKey(key: string): number {
 }
 
 /**
+ * Assign a unique id to every key, deterministically.
+ *
+ * `nativeIdForKey` is deterministic, but two different keys can in principle
+ * hash to the same 31-bit id — and two reminders sharing an id would silently
+ * overwrite each other in Android's queue. Collisions are resolved by linear
+ * probing in lexicographic key order, so the same set of keys always yields
+ * the same ids.
+ */
+export function uniqueNativeIds(keys: string[]): Map<string, number> {
+  const ids = new Map<string, number>();
+  const used = new Set<number>();
+  for (const key of [...keys].sort()) {
+    let id = nativeIdForKey(key);
+    while (used.has(id)) id = (id + 1) % 0x7fffffff;
+    used.add(id);
+    ids.set(key, id);
+  }
+  return ids;
+}
+
+/**
+ * Reconcile the tracked records against the plugin's saved list.
+ *
+ * `getPendingIds()` mirrors the plugin's own persistence (it is backed by
+ * `NotificationStorage`, not a live AlarmManager query), so:
+ *
+ * - a record still in that list is treated as **anchored** — Android may still
+ *   hold its alarm, and it must not be moved forward;
+ * - a record that vanished and whose moment has passed is treated as
+ *   **fired** — it must never be re-armed for the same day.
+ *
+ * A record that vanished but is still in the future is neither: it is simply
+ * re-scheduled by the next sync.
+ */
+export function reconcileTracked(
+  tracked: NativeNotifRecord[],
+  pendingIds: ReadonlySet<number>,
+  now: Date,
+): { anchored: NativeNotifRecord[]; firedKeys: string[] } {
+  const anchored: NativeNotifRecord[] = [];
+  const firedKeys: string[] = [];
+  for (const record of tracked) {
+    if (pendingIds.has(record.id)) {
+      anchored.push(record);
+      continue;
+    }
+    const at = record.at instanceof Date ? record.at.getTime() : new Date(record.at).getTime();
+    if (Number.isFinite(at) && at <= now.getTime()) firedKeys.push(record.key);
+  }
+  return { anchored, firedKeys };
+}
+
+/**
  * Map an internal record onto the Capacitor notification schema.
  *
  * Exported (and parameterised) so the delivery-critical settings are covered
@@ -270,10 +346,15 @@ export function notificationSchema(
       allowWhileIdle: n.at.getTime() - now < 24 * 60 * 60_000,
     },
     channelId: CHANNEL_ID,
-    // Exact only when the user already granted it — otherwise inexact, which
-    // is always delivered and never triggers the "Alarms & reminders" detour.
-    isExactNotification: exact === "granted",
+    // Exact alarms are reserved for HIGH-priority reminders (user-created, due,
+    // overdue). Ordinary motivational nudges never request exact timing — the
+    // system's inexact window is entirely fine for them. Exactness is only ever
+    // requested when the user has *already* granted it, otherwise Android 12+
+    // diverts schedule() into the "Alarms & reminders" settings screen.
+    isExactNotification: exact === "granted" && n.priority === "high",
     isExactMandatory: false,
+    // Lets a delivered notification be traced back to the rule that produced it.
+    extra: n.meta,
   };
 }
 
@@ -350,6 +431,14 @@ export async function resyncNative(
 /* Diagnostics                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * One entry of the plugin's saved list.
+ *
+ * Note: this mirrors the plugin's own storage, so it includes notifications
+ * that already fired but have not been dismissed from the shade yet. It is a
+ * faithful "what does Momentum believe is scheduled" view, not a live
+ * AlarmManager query.
+ */
 export interface PendingNotificationInfo {
   id: number;
   title: string;
@@ -362,6 +451,10 @@ export interface NativeDiagnostics {
   channelId: string;
   channelReady: boolean;
   channelRegistered: boolean;
+  /** True when the user turned the channel off (importance NONE). */
+  channelBlocked: boolean;
+  /** OS-reported channel importance, or null when unknown. */
+  channelImportance: number | null;
   permission: string;
   exactAlarm: ExactAlarmState;
   pending: PendingNotificationInfo[];
@@ -395,6 +488,8 @@ export async function getNativeDiagnostics(): Promise<NativeDiagnostics> {
     channelId: CHANNEL_ID,
     channelReady,
     channelRegistered: false,
+    channelBlocked: false,
+    channelImportance: null,
     permission: "granted",
     exactAlarm: exactAlarmState,
     pending: [],
@@ -409,7 +504,12 @@ export async function getNativeDiagnostics(): Promise<NativeDiagnostics> {
 
   try {
     const channels = await LocalNotifications.listChannels();
-    diag.channelRegistered = channels.channels.some((c) => c.id === CHANNEL_ID);
+    const channel = channels.channels.find((c) => c.id === CHANNEL_ID);
+    diag.channelRegistered = Boolean(channel);
+    // A channel the user switched off reports importance 0 — Android would
+    // silently drop every notification posted to it. Diagnostics must say so.
+    diag.channelImportance = channel?.importance ?? null;
+    diag.channelBlocked = channel !== undefined && channel.importance === 0;
   } catch {
     /* listChannels can be unavailable — leave it as unknown/false */
   }
@@ -513,7 +613,15 @@ export async function sendTestNotification(
     await refreshExactAlarmState();
 
     const outcome = await scheduleRecords([
-      { id, key, title: "Momentum", body: "This is a test notification.", at: fireAt },
+      {
+        id,
+        key,
+        title: "Momentum",
+        body: "This is a test notification.",
+        at: fireAt,
+        // User-initiated and deliberately short-lived — deliver it precisely.
+        priority: "high",
+      },
     ]);
 
     if (outcome.error) {
@@ -572,7 +680,8 @@ export async function sendWelcomeNotification(): Promise<void> {
     const key = "welcome:granted";
     const id = nativeIdForKey(key);
     await scheduleRecords([
-      { id, key, title, body, at: fireAt },
+      // A 1.5 s confirmation should land promptly, not in a batching window.
+      { id, key, title, body, at: fireAt, priority: "high" },
     ]);
   } else if (webNotificationAvailable()) {
     void showWebNotification(title, { body });
