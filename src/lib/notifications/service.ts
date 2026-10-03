@@ -313,23 +313,37 @@ export async function cancelNative(ids: number[]): Promise<void> {
   }
 }
 
-/** Replace the scheduled set: cancel what is tracked, then schedule `next`. */
+/**
+ * Reconcile Android's queue with `next`.
+ *
+ * Two rules make this safe to run on every app event:
+ *
+ * 1. Schedule **before** cancelling. The old implementation cancelled the whole
+ *    tracked set first, so a failure (or process death) between the two calls
+ *    left the device with no alarms at all — reminders simply stopped.
+ * 2. Only cancel ids that are not in the new set. An alarm that is staying is
+ *    never torn down and rebuilt.
+ */
 export async function resyncNative(
   tracked: NativeNotifRecord[],
   next: NativeNotifRecord[],
 ): Promise<ScheduleOutcome> {
   if (!nativeAvailable()) return { scheduled: 0 };
-  await cancelNative(tracked.map((t) => t.id));
 
-  const nowKeys = new Set<string>();
+  const seen = new Set<string>();
   const deduped: NativeNotifRecord[] = [];
   for (const n of next) {
-    if (nowKeys.has(n.key)) continue; // never twice the same logical reminder
-    nowKeys.add(n.key);
+    if (seen.has(n.key)) continue; // never twice the same logical reminder
+    seen.add(n.key);
     deduped.push(n);
   }
 
-  return scheduleRecords(deduped);
+  const outcome = await scheduleRecords(deduped);
+  if (!outcome.error) {
+    const keep = new Set(deduped.map((n) => n.id));
+    await cancelNative(tracked.filter((t) => !keep.has(t.id)).map((t) => t.id));
+  }
+  return outcome;
 }
 
 /* ------------------------------------------------------------------ */
@@ -352,6 +366,23 @@ export interface NativeDiagnostics {
   exactAlarm: ExactAlarmState;
   pending: PendingNotificationInfo[];
   pendingCount: number;
+}
+
+/**
+ * Ids Android is actually still holding.
+ *
+ * Used to reconcile the tracked list: an alarm missing from here has fired
+ * (or been dropped), and a reminder that already fired must not be re-armed the
+ * next time the app opens.
+ */
+export async function getPendingIds(): Promise<Set<number>> {
+  if (!nativeAvailable()) return new Set();
+  try {
+    const res = await LocalNotifications.getPending();
+    return new Set(res.notifications.map((n) => n.id));
+  } catch {
+    return new Set();
+  }
 }
 
 /**

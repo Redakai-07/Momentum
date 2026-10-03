@@ -364,6 +364,13 @@ function normalizeTask(raw: unknown, index: number): RowResult<Task> {
   const schedule = normalizeSchedule(raw.schedule, where);
   if (typeof schedule === "string") return { ok: false, error: schedule };
 
+  // Advanced per-task reminder time. A malformed value is dropped (the task
+  // then follows its section's time) rather than failing the whole import.
+  const notifyTime =
+    isStr(raw.notifyTime) && /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.notifyTime)
+      ? raw.notifyTime
+      : undefined;
+
   const planned = normalizeDurationValue(raw.estimatedMinutes);
   const remainingRaw = raw.remainingMinutes;
   const remaining = isNum(remainingRaw)
@@ -382,6 +389,7 @@ function normalizeTask(raw: unknown, index: number): RowResult<Task> {
     dueDate: isStr(raw.dueDate) ? raw.dueDate : undefined,
     priority: isStr(raw.priority) ? (raw.priority as Priority) : undefined,
     schedule: schedule ?? undefined,
+    notifyTime,
     status,
     createdAt: isStr(raw.createdAt) && raw.createdAt.length > 0 ? raw.createdAt : new Date().toISOString(),
     completedAt: isStr(raw.completedAt) ? raw.completedAt : undefined,

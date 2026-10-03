@@ -3,7 +3,7 @@ import { rolloverTasks, isTaskDoneOn, needsNewDayReset, remainingOn, completionD
 import { liveDayRec } from "./performance";
 import { scheduleOccursOn } from "./schedule";
 import { pickNextTask, planNotifications } from "./notifications/engine";
-import { shouldNotify } from "./notifications/decision";
+import { planUpcomingReminders } from "./notifications/planner";
 import type { NotificationSettings } from "./notifications/types";
 import type { CustomSection, Task, TimeLog } from "./types";
 
@@ -44,16 +44,21 @@ const L = (taskId: string, minutes: number, date: string): TimeLog => ({
 
 const settings: NotificationSettings = {
   enabled: true,
-  cooldownMinutes: 60,
-  completionCooldownMinutes: 30,
+  dailyReminderTime: "09:00",
+  remainderWeekday: 6,
+  remainderTime: "10:00",
+  occasionalDays: [1, 15],
+  occasionalTime: "10:00",
   taskReminders: true,
   specialTaskReminders: true,
   overdueReminders: true,
+  snoozeMinutes: 30,
+  cooldownMinutes: 60,
+  completionCooldownMinutes: 30,
   quietHoursEnabled: true,
   quietStart: "22:30",
   quietEnd: "07:00",
   morningHour: 9,
-  snoozeMinutes: 30,
 };
 
 /** A task completed on `key`, as the stores would persist it. */
@@ -249,22 +254,20 @@ describe("TEST 11-13 — the reminder engine reads today's activity", () => {
     return new Date(y, mo - 1, d, h, 0);
   };
 
-  it("TEST 12 — a task completed for today is not a reminder candidate", () => {
+  it("TEST 12 — a task completed for today gets no reminder today", () => {
     const done = completedOn("ml", "ML", DAY2, 60);
     expect(pickNextTask(DAY2, [done])).toBeNull();
 
-    const decision = shouldNotify({
-      now: now(DAY2, 15),
+    const plan = planUpcomingReminders({
+      now: new Date(2026, 8, 14, 15, 0), // DAY2 15:00 local
       tasks: [done],
       logs: [L("ml", 60, DAY2)],
       settings,
-      lastMeaningfulActivityAt: at(DAY2, 8),
-      lastInteractionAt: at(DAY2, 13),
     });
-    // The completed task is filtered out of today's work entirely, so the
-    // engine reports nothing to remind about.
-    expect(decision.shouldNotify).toBe(false);
-    expect(decision.reason).toBe("no_tasks");
+    // Today's moment is spent; the planner arms nothing for DAY2 but does arm
+    // the following days, because recurring work reopens.
+    expect(plan.records.filter((r) => r.date === DAY2)).toHaveLength(0);
+    expect(plan.records.some((r) => r.date === DAY3 && r.taskId === "ml")).toBe(true);
   });
 
   it("TEST 13 — the same task is a reminder candidate again the next day", () => {
@@ -274,16 +277,16 @@ describe("TEST 11-13 — the reminder engine reads today's activity", () => {
     expect(pickNextTask(DAY3, [stale])?.id).toBe("ml");
     expect(remainingOn(stale, DAY3)).toBe(60);
 
-    const decision = shouldNotify({
-      now: now(DAY3, 15),
+    // DAY3 15:00 is after the 09:00 default, so today's reminder is a catch-up.
+    const plan = planUpcomingReminders({
+      now: new Date(2026, 8, 15, 15, 0),
       tasks: [stale],
       logs: [L("ml", 60, DAY2)],
       settings,
-      lastMeaningfulActivityAt: at(DAY2, 8),
-      lastInteractionAt: at(DAY3, 7),
     });
-    expect(decision.shouldNotify).toBe(true);
-    expect(decision.task?.id).toBe("ml");
+    const today = plan.records.find((r) => r.date === DAY3);
+    expect(today?.taskId).toBe("ml");
+    expect(today?.catchUp).toBe(true);
   });
 
   it("TEST 11 — plans a native cue for a pending daily task with a start time", () => {

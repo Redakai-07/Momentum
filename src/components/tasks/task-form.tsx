@@ -92,7 +92,12 @@ function TaskFormBody({
   const [priority, setPriority] = useState<Priority>(task?.priority ?? "medium");
   const [description, setDescription] = useState(task?.description ?? "");
   const [nextAction, setNextAction] = useState(task?.nextAction ?? "");
-  const [detailsOpen, setDetailsOpen] = useState(Boolean(task && (task.description || task.nextAction || task.dueDate || task.priority !== undefined)));
+  const [notifyTime, setNotifyTime] = useState(task?.notifyTime ?? "");
+  // Editing always reveals the details (due date, reminder time, …) — otherwise
+  // a bare task could never be given one. Creating keeps them collapsed.
+  const [detailsOpen, setDetailsOpen] = useState(
+    isEdit || Boolean(task && (task.description || task.nextAction || task.dueDate || task.notifyTime || task.priority !== undefined)),
+  );
 
   const pickSection = (key: SectionKey) => {
     setSectionKey(key);
@@ -125,6 +130,7 @@ function TaskFormBody({
         nextAction: nextAction.trim() || undefined,
         dueDate: dueDate || undefined,
         priority,
+        notifyTime: notifyTime || undefined,
       });
     } else {
       addTask({
@@ -136,6 +142,7 @@ function TaskFormBody({
         nextAction: nextAction.trim() || undefined,
         dueDate: dueDate || undefined,
         priority,
+        notifyTime: notifyTime || undefined,
       });
     }
     onClose();
@@ -234,7 +241,7 @@ function TaskFormBody({
       </div>
 
       {/* Progressive disclosure — advanced options stay out of the way. */}
-      {!isEdit && (
+      {(
         <button
           type="button"
           onClick={() => setDetailsOpen((v) => !v)}
@@ -274,6 +281,17 @@ function TaskFormBody({
                 value={priority}
                 onChange={setPriority}
               />
+            </Field>
+            <Field label="Reminder time" hint="advanced — optional" htmlFor="tf-notify">
+              <Input
+                id="tf-notify"
+                type="time"
+                value={notifyTime}
+                onChange={(e) => setNotifyTime(e.target.value)}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Leave empty to follow the section&apos;s schedule or the default reminder time.
+              </p>
             </Field>
           </div>
 

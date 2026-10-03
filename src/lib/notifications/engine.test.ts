@@ -17,16 +17,21 @@ const at = (key: string, h: number, m = 0): Date => {
 
 const settings: NotificationSettings = {
   enabled: true,
-  cooldownMinutes: 30,
-  completionCooldownMinutes: 30,
+  dailyReminderTime: "09:00",
+  remainderWeekday: 6,
+  remainderTime: "10:00",
+  occasionalDays: [1, 15],
+  occasionalTime: "10:00",
   taskReminders: true,
   specialTaskReminders: true,
   overdueReminders: true,
+  snoozeMinutes: 30,
+  cooldownMinutes: 30,
+  completionCooldownMinutes: 30,
   quietHoursEnabled: true,
   quietStart: "22:30",
   quietEnd: "07:00",
   morningHour: 9,
-  snoozeMinutes: 30,
 };
 
 const T = (o: Partial<Task> & { id: string; title: string }): Task => ({

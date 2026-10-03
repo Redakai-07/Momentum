@@ -30,21 +30,40 @@ export interface TaskNotification {
 
 export interface NotificationSettings {
   enabled: boolean;
-  /** Global quiet period (minutes) between ordinary notifications. */
-  cooldownMinutes: number;
-  /** Breathing room (minutes) after meaningful activity before nudging. */
-  completionCooldownMinutes: number;
+
+  /* ---- Explicit reminder times (the only thing the planner uses) ---- */
+
+  /** Default time for daily/custom tasks without a time of their own. */
+  dailyReminderTime: string;
+  /** Weekend day (Date#getDay()) for Reminder-section work without a due date. */
+  remainderWeekday: number;
+  /** Local "HH:MM" for that weekly reminder. */
+  remainderTime: string;
+  /** Days of the month for Occasional work without a due date. */
+  occasionalDays: number[];
+  /** Local "HH:MM" for that monthly reminder. */
+  occasionalTime: string;
+
+  /** Per-section switches (daily/custom, due-today, overdue). */
   taskReminders: boolean;
   specialTaskReminders: boolean;
   overdueReminders: boolean;
-  /** Quiet hours — ordinary reminders suppressed inside this window. */
-  quietHoursEnabled: boolean;
-  /** Local "HH:MM" (24h) start of quiet hours. */
-  quietStart: string;
-  /** Local "HH:MM" (24h) end of quiet hours. */
-  quietEnd: string;
-  morningHour: number;
   snoozeMinutes: number;
+
+  /* ---- Legacy (kept so stored settings and backups stay valid) ---- */
+
+  /** @deprecated unused — reminders now fire at explicit times. */
+  cooldownMinutes: number;
+  /** @deprecated unused. */
+  completionCooldownMinutes: number;
+  /** @deprecated unused. */
+  quietHoursEnabled: boolean;
+  /** @deprecated unused. */
+  quietStart: string;
+  /** @deprecated unused. */
+  quietEnd: string;
+  /** @deprecated unused. */
+  morningHour: number;
 }
 
 /** The stable identity of a reminder: one per task/type/day. */

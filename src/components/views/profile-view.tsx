@@ -24,7 +24,7 @@ import {
   yearlyAggregate,
   type DayRec,
 } from "@/lib/performance";
-import { COOLDOWN_OPTIONS } from "@/lib/config";
+import { WEEKEND_DAYS } from "@/lib/config";
 import {
   Panel,
   WeeklyRows,
@@ -572,69 +572,85 @@ export function ProfileView() {
               <ToggleRow
                 checked={notificationSettings.taskReminders}
                 onChange={(v) => setNotificationSettings({ taskReminders: v })}
-                label="Daily reminders"
-                sub="A gentle nudge when the day&apos;s plan is still waiting."
+                label="Daily task reminders"
+                sub="Remind me at each task's time (or the default below)."
               />
               <ToggleRow
                 checked={notificationSettings.specialTaskReminders}
                 onChange={(v) => setNotificationSettings({ specialTaskReminders: v })}
-                label="Special / due reminders"
-                sub="For tasks due today — even during the quiet period."
+                label="Due-today reminders"
+                sub="For tasks whose due date is today."
               />
               <ToggleRow
                 checked={notificationSettings.overdueReminders}
                 onChange={(v) => setNotificationSettings({ overdueReminders: v })}
                 label="Overdue reminders"
-                sub="One quiet check each morning for overdue work."
-              />
-              <ToggleRow
-                checked={notificationSettings.quietHoursEnabled}
-                onChange={(v) => setNotificationSettings({ quietHoursEnabled: v })}
-                label="Quiet hours"
-                sub="No ordinary reminders while you sleep."
+                sub="A daily reminder while a task stays overdue."
               />
 
               <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <div>
-                  <p className="text-[13.5px] font-medium text-foreground">Quiet hours window</p>
+                  <p className="text-[13.5px] font-medium text-foreground">Daily reminder time</p>
                   <p className="text-xs text-muted-foreground">
-                    Ordinary reminders are suppressed between these times.
+                    Used when a task or section has no time of its own.
+                  </p>
+                </div>
+                <input
+                  type="time"
+                  value={notificationSettings.dailyReminderTime}
+                  onChange={(e) => setNotificationSettings({ dailyReminderTime: e.target.value })}
+                  aria-label="Daily reminder time"
+                  className="h-8 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-[13.5px] font-medium text-foreground">
+                    Reminder section check-in
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    For Reminder tasks with no due date — once a week.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <select
+                    value={String(notificationSettings.remainderWeekday)}
+                    onChange={(e) =>
+                      setNotificationSettings({ remainderWeekday: Number(e.target.value) })
+                    }
+                    aria-label="Weekend reminder day"
+                    className="h-8 rounded-md border border-input bg-card px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                  >
+                    {WEEKEND_DAYS.map((d) => (
+                      <option key={d.value} value={String(d.value)}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="time"
-                    value={notificationSettings.quietStart}
-                    onChange={(e) => setNotificationSettings({ quietStart: e.target.value })}
-                    aria-label="Quiet hours start"
-                    className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
-                  />
-                  <span className="text-xs text-muted-foreground">→</span>
-                  <input
-                    type="time"
-                    value={notificationSettings.quietEnd}
-                    onChange={(e) => setNotificationSettings({ quietEnd: e.target.value })}
-                    aria-label="Quiet hours end"
-                    className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                    value={notificationSettings.remainderTime}
+                    onChange={(e) => setNotificationSettings({ remainderTime: e.target.value })}
+                    aria-label="Weekend reminder time"
+                    className="h-8 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
                   />
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 py-2.5">
                 <div>
-                  <p className="text-[13.5px] font-medium text-foreground">Reminder cooldown</p>
+                  <p className="text-[13.5px] font-medium text-foreground">Occasional check-in</p>
                   <p className="text-xs text-muted-foreground">
-                    How long Momentum waits before another ordinary nudge.
+                    Twice a month (1st and 15th) for Occasional tasks with no due date.
                   </p>
                 </div>
-                <Segmented
-                  className="[&>button]:w-auto"
-                  options={COOLDOWN_OPTIONS.map((o) => ({
-                    value: String(o.value),
-                    label: o.label,
-                  }))}
-                  value={String(notificationSettings.cooldownMinutes)}
-                  onChange={(v) => setNotificationSettings({ cooldownMinutes: Number(v) })}
+                <input
+                  type="time"
+                  value={notificationSettings.occasionalTime}
+                  onChange={(e) => setNotificationSettings({ occasionalTime: e.target.value })}
+                  aria-label="Occasional reminder time"
+                  className="h-8 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
                 />
               </div>
 

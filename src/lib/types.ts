@@ -69,6 +69,12 @@ export interface Task {
   priority?: Priority;
   /** Legacy per-task schedule. New tasks inherit their section schedule. */
   schedule?: Schedule;
+  /**
+   * Advanced, per-task local "HH:MM" reminder time. When omitted, the
+   * reminder follows the section schedule's start time, then the global
+   * default (see lib/notifications/planner.ts).
+   */
+  notifyTime?: string;
   status: TaskStatus;
   createdAt: string;
   completedAt?: string;

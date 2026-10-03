@@ -6,12 +6,7 @@ import { liveDayRec } from "./performance";
 import { applyRecoveryKinds } from "./activity";
 import { COOLDOWN_OPTIONS, NOTIFICATION_DEFAULTS } from "./config";
 import { planNotifications, notificationMessage } from "./notifications/engine";
-import {
-  planDayReminder,
-  isQuietHours,
-  nextOutsideQuiet,
-  type DecisionContext,
-} from "./notifications/decision";
+import { planUpcomingReminders } from "./notifications/planner";
 import {
   DEFAULT_FOCUS_SETTINGS,
   advancePhase,
@@ -41,6 +36,7 @@ import {
   refreshExactAlarmState,
   scheduleRecords,
   cancelNative,
+  getPendingIds,
   requestExactAlarmAccess as openExactAlarmSettings,
   getNativeDiagnostics,
   sendTestNotification,
@@ -50,8 +46,8 @@ import {
   type NativeDiagnostics,
   type TestNotificationResult,
 } from "./notifications/service";
-import { notifKey, type TaskNotification, type NotificationSettings } from "./notifications/types";
-import { canAccomplish, isTaskDone, isTaskDoneOn, rolloverTasks, toAccomplished } from "./task-state";
+import { type TaskNotification, type NotificationSettings } from "./notifications/types";
+import { canAccomplish, isTaskDone, rolloverTasks, toAccomplished } from "./task-state";
 import {
   buildBackup,
   serializeBackup,
@@ -100,6 +96,8 @@ export interface TaskInput {
   dueDate?: string;
   priority?: Priority;
   schedule?: Schedule;
+  /** Advanced per-task local "HH:MM" reminder time. */
+  notifyTime?: string;
 }
 
 export interface SectionInput {
@@ -422,9 +420,6 @@ async function buildCurrentBackup(): Promise<MomentumBackup> {
 /* Native notification helpers                                         */
 /* ------------------------------------------------------------------ */
 
-const isOrdinaryType = (t: string) =>
-  t === "task_start" || t === "task_reminder" || t === "next_task";
-
 /** Fire-time timestamp of a persisted record (tolerates round-tripped values). */
 function recordAtMs(value: unknown): number {
   if (value instanceof Date) return value.getTime();
@@ -432,187 +427,84 @@ function recordAtMs(value: unknown): number {
   return Number.NaN;
 }
 
-/** Minutes since an ISO timestamp (Infinity when missing). */
-function minutesSince(iso: string | null | undefined, now: Date): number {
-  if (!iso) return Number.POSITIVE_INFINITY;
-  const ms = new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, Math.floor((now.getTime() - ms) / 60_000));
-}
-
-/** Persisted anchor for today's ordinary nudge, so it cannot drift. */
-interface OrdinaryPlan {
-  date: string;
-  at: string;
-}
-
-/** Catch-up lead: a cue whose moment already passed fires this much later. */
-const CATCHUP_LEAD_MINUTES = 15;
-
 /**
- * Earliest moment a *missed* cue may still be delivered, or null when the day
- * has no non-quiet time left. Without this, a cue whose scheduled time had
- * already passed when the app was next opened (the common case — a due-today
- * task seen at 15:00, an alarm that fired while the app was closed) was simply
- * dropped and never reached the user.
- */
-function catchupSlot(now: Date, settings: NotificationSettings): Date | null {
-  const today = dateKey(now);
-  const slot = nextOutsideQuiet(
-    settings,
-    new Date(now.getTime() + CATCHUP_LEAD_MINUTES * 60_000),
-  );
-  return dateKey(slot) === today ? slot : null;
-}
-
-interface BuiltSchedule {
-  records: NativeNotifRecord[];
-  /** Stable fire time for today's ordinary nudge (null when none today). */
-  ordinaryAt: Date | null;
-}
-
-/**
- * Build the native schedule: per-task cues from the in-app queue (filtered
- * through quiet hours + completion cooldown) plus the day's ordinary nudge.
- * Deterministic + deduped.
+ * Build the native schedule from the ONE planner (planner.ts).
  *
- * Every record here is a real `AlarmManager` alarm, so delivery does not
- * depend on the WebView staying alive — that is the whole point. The day
- * planner (`planDayReminder`) decides *whether* today deserves a nudge and
- * from when; `storedOrdinary` keeps that moment fixed across syncs so it
- * cannot slide forward on every app open.
+ * Every record here is a real `AlarmManager` alarm, so delivery never depends
+ * on the WebView staying alive. The planner covers the whole reminder horizon
+ * (today + 6 days), which is what lets reminders survive the app not being
+ * opened — the failure the old three-layer design had.
  */
+/** Reconciliation inputs: what Android really holds + what already fired. */
+interface ScheduleReconciliation {
+  /** Tracked records still present in Android's pending list. */
+  anchored: NativeNotifRecord[];
+  /** Keys of reminders already delivered today — never armed twice. */
+  firedKeys: Set<string>;
+}
+
 function buildNativeSchedule(
   get: GetFn,
   now: Date,
-  storedOrdinary: OrdinaryPlan | null,
-): BuiltSchedule {
+  recon: ScheduleReconciliation,
+): { records: NativeNotifRecord[]; skipped: { taskId: string; date: string; reason: string }[] } {
   const s = get();
-  const settings = s.notificationSettings;
-  const today = dateKey(now);
-  const records: NativeNotifRecord[] = [];
-
-  const { creates } = planNotifications({
+  const plan = planUpcomingReminders({
     now,
     tasks: s.tasks,
     logs: s.logs,
     sections: s.sections,
-    existing: s.notifications,
-    settings,
+    settings: s.notificationSettings,
   });
 
-  // Collect candidate reminders from both newly planned creates and existing
-  // scheduled / snoozed records.
-  const candidates = new Map<
-    string,
-    { taskId: string; type: TaskNotification["type"]; date: string; scheduledAt: string; snoozedUntil?: string; status?: string; expiresAt?: string }
-  >();
+  const today = dateKey(now);
+  const nowMs = now.getTime();
 
-  for (const c of creates) {
-    candidates.set(notifKey(c), c);
-  }
-  for (const n of s.notifications) {
-    if ((n.status === "scheduled" || n.status === "snoozed") && n.date === today) {
-      candidates.set(notifKey(n), n);
-    }
-  }
+  // Snooze is an explicit user wish ("remind me again in 30 minutes"), so it is
+  // honoured here: a snoozed task's today reminder is replaced by one alarm at
+  // `snoozedUntil`, never doubled up with the scheduled one.
+  const snoozed = s.notifications.filter(
+    (n) =>
+      n.status === "snoozed" &&
+      n.date === today &&
+      n.snoozedUntil !== undefined &&
+      new Date(n.snoozedUntil).getTime() > nowMs,
+  );
+  const snoozedTaskIds = new Set(snoozed.map((n) => n.taskId));
 
-  for (const item of candidates.values()) {
-    let fireAt = new Date(
-      item.status === "snoozed" && item.snoozedUntil ? item.snoozedUntil : item.scheduledAt,
-    );
+  const records: NativeNotifRecord[] = plan.records
+    .filter((r) => !recon.firedKeys.has(r.key))
+    .filter((r) => !(r.date === today && snoozedTaskIds.has(r.taskId)))
+    .map((r) => {
+      // A catch-up moment must not slide forward on every sync: if Android still
+      // holds this alarm, keep the moment it was armed with.
+      const anchor = r.catchUp
+        ? recon.anchored.find((a) => a.key === r.key)
+        : undefined;
+      const anchorAt = anchor ? recordAtMs(anchor.at) : Number.NaN;
+      return {
+        id: nativeIdForKey(r.key),
+        key: r.key,
+        title: r.title,
+        body: r.body,
+        at: Number.isFinite(anchorAt) ? new Date(anchorAt) : r.at,
+      };
+    });
 
-    const task = s.tasks.find((t) => t.id === item.taskId);
-    if (!task || task.status !== "active") continue;
-    if (isTaskDoneOn(task, today)) continue;
-    // Stale-notification prevention: a cue past its expiry must never fire.
-    if (item.expiresAt && new Date(item.expiresAt).getTime() <= now.getTime()) continue;
-
-    // The moment already passed while the app was closed (or the cue belongs to
-    // an earlier slot today). Still-valid work is re-armed for later today
-    // instead of being silently dropped — that drop was why nothing arrived.
-    if (fireAt.getTime() <= now.getTime()) {
-      if (item.date !== today) continue;
-      const slot = catchupSlot(now, settings);
-      if (!slot) continue;
-      fireAt = slot;
-    }
-
-    // Ordinary reminders: quiet hours + breathing room after activity.
-    if (isOrdinaryType(item.type)) {
-      if (isQuietHours(fireAt, settings)) continue;
-      const recentActivity = Math.min(
-        minutesSince(s.notificationMeta.lastMeaningfulActivityAt, now),
-        minutesSince(s.notificationMeta.lastTaskCompletionAt, now),
-      );
-      if (recentActivity < settings.completionCooldownMinutes) continue;
-    }
-
-    const body =
-      item.type === "next_task"
-        ? task.nextAction
-          ? `Next: ${task.nextAction}`
-          : notificationMessage(item, task.title)
-        : notificationMessage(item, task.title);
-
+  for (const n of snoozed) {
+    const task = s.tasks.find((t) => t.id === n.taskId);
+    if (!task) continue;
     records.push({
-      id: nativeIdForKey(`${item.taskId}:${item.type}:${item.date}`),
-      key: `${item.taskId}:${item.type}:${item.date}`,
+      id: nativeIdForKey(`snooze:${n.id}`),
+      key: `snooze:${n.id}`,
       title: task.title,
-      body,
-      at: fireAt,
+      body: notificationMessage(n, task.title),
+      at: new Date(n.snoozedUntil!),
     });
   }
 
-  /* Day-level ordinary nudge. */
-  // The planner answers "does today deserve a reminder, and from when?" — a
-  // question whose answer does not depend on whether the app happens to be open
-  // at this instant (see planDayReminder for why that distinction mattered).
-  const decisionCtx: DecisionContext = {
-    now,
-    tasks: s.tasks,
-    logs: s.logs,
-    sections: s.sections,
-    settings,
-    lastNotificationAt: s.notificationMeta.lastNotificationAt,
-    lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
-    lastTaskCompletionAt: s.notificationMeta.lastTaskCompletionAt,
-    lastInteractionAt: s.notificationMeta.lastInteractionAt,
-    lastReminderByTask: s.notificationMeta.lastReminderByTask,
-  };
-  const plan = planDayReminder(decisionCtx);
-
-  let ordinaryAt: Date | null = null;
-  // Priority deliberately does not gate this. An overdue or due-today task is
-  // exactly the case that must still reach the user when the app is closed, and
-  // the in-app queue cannot cover it: its cue is stamped "delivered" the moment
-  // its time has passed while the app is open, so it is no longer a native
-  // candidate. The day plan is the one alarm per day that always gets armed.
-  if (plan.eligible && plan.earliest && plan.task) {
-    // Keep the previously agreed moment so it stays put across syncs, but move
-    // it forward when reality (new activity, a delivered notification) has
-    // invalidated it. A plan from another day is simply stale.
-    const stored = storedOrdinary?.date === today ? new Date(storedOrdinary.at) : null;
-    const storedValid = stored && Number.isFinite(stored.getTime()) ? stored : null;
-    ordinaryAt =
-      storedValid && storedValid.getTime() > plan.earliest.getTime()
-        ? storedValid
-        : plan.earliest;
-
-    if (ordinaryAt.getTime() > now.getTime() && !isQuietHours(ordinaryAt, settings)) {
-      records.push({
-        id: nativeIdForKey(`ordinary:${today}`),
-        key: `ordinary:${today}`,
-        title: plan.task.title,
-        body: plan.message ?? "You still have planned work waiting.",
-        at: ordinaryAt,
-      });
-    } else {
-      ordinaryAt = null;
-    }
-  }
-
-  return { records: records.sort((a, b) => a.at.getTime() - b.at.getTime()), ordinaryAt };
+  records.sort((a, b) => a.at.getTime() - b.at.getTime());
+  return { records, skipped: plan.skipped };
 }
 
 const devLog = (msg: string, data?: unknown) => {
@@ -720,85 +612,176 @@ function showFocusTransition(finished: FocusPhase, next: FocusPhase): void {
   void showWebNotification(title, { body });
 }
 
-/** Plain-English answer to "why did (or didn't) today get a reminder?". */
+/** Plain-English answer to "what has Momentum armed, and why?". */
 export interface DecisionDiagnostics {
-  eligible: boolean;
+  /** Reminders the planner currently wants Android to hold. */
+  plannedCount: number;
+  /** Why the next reminder exists: task_time / due_today / overdue / weekend / monthly. */
   reason: string;
   explanation: string;
-  /** Task the nudge would point at, when there is one. */
+  /** Title of the task the next reminder points at. */
   taskTitle: string | null;
-  /** When today's nudge is set to fire, or null when none is planned. */
+  /** When the next reminder fires, or null when none is planned. */
   plannedAt: string | null;
-  /** Stable alarm id for the planned nudge — the id Android holds. */
+  /** Stable alarm id for the next reminder — the id Android holds. */
   scheduledId: number | null;
   pendingNativeCount: number;
   nextPendingAt: string | null;
-  /** Deterministic reminder score behind the day's plan (dev tuning aid). */
-  score: number;
-  /** Why the user is being nudged: due / next_action / evening_check_in / … */
-  kind: string;
 }
 
 const REASON_COPY: Record<string, string> = {
+  task_time: "Scheduled task time.",
+  due_today: "Task is due today.",
+  overdue: "Task is overdue.",
+  weekend: "Weekly check-in on the chosen weekend day.",
+  monthly: "Monthly check-in on the chosen day of the month.",
+  nothing_due: "Nothing is due in the reminder horizon.",
   notifications_disabled: "Task reminders are switched off for this app.",
-  no_tasks: "Nothing is scheduled for today.",
-  all_done: "Everything planned for today is done.",
-  no_next_step: "There is no open task worth a nudge.",
-  already_notified: "This task was already reminded about today.",
-  quiet_hours: "Quiet hours leave no room left today.",
-  normal_remaining: "Planned work is still outstanding.",
-  next_action: "An open task carries a next action.",
-  overdue_task: "A task is overdue.",
-  special_task: "A task is due today.",
-  high_duration: "A large task is still outstanding.",
-  global_cooldown: "Waiting out the notification cooldown.",
-  recent_activity: "Backing off after recent activity.",
-  no_gap_yet: "Waiting for enough of a gap since the last activity.",
 };
 
 /**
- * Describe the day's notification plan from the live state.
+ * Describe what the planner has armed for the reminder horizon.
  *
- * It deliberately recomputes the plan (rather than reading the persisted one)
- * so the report stays truthful even before the next sync runs.
+ * Recomputed from live state (rather than read from the persisted queue) so the
+ * report stays truthful even before the next sync runs.
  */
 function describeDayPlan(
   s: MomentumState,
   native: NativeDiagnostics,
 ): DecisionDiagnostics {
   const now = new Date();
-  const plan = planDayReminder({
+  const plan = planUpcomingReminders({
     now,
     tasks: s.tasks,
     logs: s.logs,
     sections: s.sections,
     settings: s.notificationSettings,
-    lastNotificationAt: s.notificationMeta.lastNotificationAt,
-    lastMeaningfulActivityAt: s.notificationMeta.lastMeaningfulActivityAt,
-    lastTaskCompletionAt: s.notificationMeta.lastTaskCompletionAt,
-    lastInteractionAt: s.notificationMeta.lastInteractionAt,
-    lastReminderByTask: s.notificationMeta.lastReminderByTask,
   });
-
+  const next = plan.records[0] ?? null;
   const pending = [...native.pending]
     .filter((p) => p.at)
     .sort((a, b) => (a.at! < b.at! ? -1 : 1));
-  const scheduled = plan.eligible && plan.earliest
-    ? nativeIdForKey(`ordinary:${dateKey(now)}`)
-    : null;
+  const reason = next
+    ? next.reason
+    : s.notificationSettings.enabled
+      ? "nothing_due"
+      : "notifications_disabled";
 
   return {
-    eligible: plan.eligible,
-    reason: plan.reason,
-    explanation: REASON_COPY[plan.reason] ?? plan.reason,
-    taskTitle: plan.task?.title ?? null,
-    plannedAt: plan.earliest ? plan.earliest.toISOString() : null,
-    scheduledId: scheduled,
+    plannedCount: plan.records.length,
+    reason,
+    explanation: REASON_COPY[reason] ?? reason,
+    taskTitle: next?.title ?? null,
+    plannedAt: next ? next.at.toISOString() : null,
+    scheduledId: next ? nativeIdForKey(next.key) : null,
     pendingNativeCount: native.pendingCount,
     nextPendingAt: pending[0]?.at ?? null,
-    score: plan.score,
-    kind: plan.kind,
   };
+}
+
+/**
+ * Serializes native syncs. Many events trigger a rebuild (task mutations,
+ * resume, the 60 s tick, permission flows…); letting them interleave produced
+ * racing cancel/schedule calls and an out-of-sync `scheduledNotificationIds`.
+ */
+let nativeSyncQueue: Promise<void> = Promise.resolve();
+
+/**
+ * One native sync: plan the reminder horizon, then reconcile Android's queue.
+ *
+ * Notes on the deliberate choices here:
+ * - Permission is read **live**, never from cached state. The user can grant or
+ *   revoke notifications in Android settings while the app is alive, and a
+ *   stale value used to leave the alarm queue permanently empty.
+ * - `resyncNative` schedules before cancelling and only cancels stale ids, so a
+ *   failure can never empty the queue.
+ * - A failed schedule leaves the tracked list untouched rather than claiming
+ *   alarms that are not actually held.
+ */
+async function syncNativeOnce(get: GetFn, set: SetFn): Promise<void> {
+  if (!nativeAvailable()) return;
+  const settings = get().notificationSettings;
+  const now = new Date();
+
+  const livePermission = await checkPermission();
+  if (livePermission !== get().notificationPermission) {
+    await writeMetaValue("notificationPermissionState", livePermission);
+    set({ notificationPermission: livePermission });
+  }
+
+  const tracked =
+    (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
+
+  if (!settings.enabled || livePermission !== "granted") {
+    if (tracked.length > 0) {
+      await resyncNative(tracked, []);
+      await writeMetaValue("scheduledNotificationIds", []);
+      devLog("native schedule cleared (disabled or no permission)");
+    }
+    return;
+  }
+
+  const today = dateKey(now);
+  // `firedReminders` records what was delivered today, so opening the app again
+  // does not re-arm (and re-show) a reminder the user already received. Only
+  // today's keys are kept — tomorrow's identical key must start fresh.
+  const storedFired =
+    (await readMetaValue<Record<string, string>>("firedReminders")) ?? {};
+  const fired: Record<string, string> = {};
+  for (const [key, at] of Object.entries(storedFired)) {
+    if (key.endsWith(`:${today}`)) fired[key] = at;
+  }
+
+  // Reconcile against what Android truly holds: a tracked alarm that is gone
+  // either fired or was dropped by the system. Either way it must not be armed
+  // again for the same day.
+  const pendingIds = tracked.length > 0 ? await getPendingIds() : new Set<number>();
+  const anchored = tracked.filter((t) => pendingIds.has(t.id));
+  for (const t of tracked) {
+    if (!pendingIds.has(t.id) && recordAtMs(t.at) <= now.getTime()) {
+      fired[t.key] = now.toISOString();
+    }
+  }
+  const firedChanged = JSON.stringify(fired) !== JSON.stringify(storedFired);
+
+  const { records, skipped } = buildNativeSchedule(get, now, {
+    anchored,
+    firedKeys: new Set(Object.keys(fired)),
+  });
+
+  // Skip the native round-trip when nothing changed. Stored records have
+  // round-tripped through IndexedDB, so compare timestamps defensively.
+  const same =
+    records.length === anchored.length &&
+    anchored.every(
+      (t, i) => t.key === records[i].key && recordAtMs(t.at) === records[i].at.getTime(),
+    );
+  if (same) {
+    if (firedChanged) await writeMetaValue("firedReminders", fired);
+    devLog("native schedule unchanged", records.length);
+    return;
+  }
+
+  const outcome = await resyncNative(tracked, records);
+  devLog("native schedule synced", {
+    planned: records.length,
+    scheduled: outcome.scheduled,
+    warning: outcome.warning,
+    error: outcome.error,
+    keys: records.map((r) => r.key),
+  });
+  if (!outcome.error) {
+    await writeMetaValue("scheduledNotificationIds", records);
+  }
+  if (firedChanged) await writeMetaValue("firedReminders", fired);
+
+  // Dev-only: why a task produced nothing on a given day. Off in production.
+  if (process.env.NODE_ENV !== "production" && skipped.length > 0) {
+    devLog(
+      "planner skipped",
+      skipped.slice(0, 20).map((s) => `${s.taskId}:${s.date}:${s.reason}`),
+    );
+  }
 }
 
 /**
@@ -1110,6 +1093,7 @@ export const useStore = create<MomentumState>()((set, get) => ({
       dueDate: input.dueDate || undefined,
       priority: input.priority,
       schedule: input.schedule,
+      notifyTime: input.notifyTime?.trim() || undefined,
       status: "active",
       createdAt: new Date().toISOString(),
     };
@@ -1613,36 +1597,12 @@ export const useStore = create<MomentumState>()((set, get) => ({
       set({ notificationMeta: meta });
     }
 
-    // Delivery must reach the user OUTSIDE the app, not only in the in-app
-    // strip. On Android the cue is posted through Capacitor Local
-    // Notifications (the same path as the test notification); on the web we
-    // fall back to the browser notification API. The scheduled catch-up in
-    // `buildNativeSchedule` only covers cues that matured while the app was
-    // closed — candidates there exclude "delivered" rows, so this cannot
-    // double-fire.
-    if (newlyDelivered.length > 0 && nativeAvailable()) {
-      await ensureChannel();
-      await refreshExactAlarmState();
-      const now2 = Date.now();
-      await scheduleRecords(
-        newlyDelivered.map((n, i) => {
-          const task = s.tasks.find((t) => t.id === n.taskId);
-          const body =
-            n.type === "next_task" && task?.nextAction
-              ? `Next: ${task.nextAction}`
-              : task
-                ? notificationMessage(n, task.title)
-                : "You still have planned work waiting.";
-          return {
-            id: nativeIdForKey(`deliver:${n.id}:${now2}:${i}`),
-            key: `deliver:${n.id}:${now2}:${i}`,
-            title: task?.title ?? "Momentum",
-            body,
-            at: new Date(now2 + 2_000), // just past "now" so Android posts it
-          };
-        }),
-      );
-    }
+    // The in-app queue is a UI device: its rows feed the reminders strip and
+    // the snooze/dismiss controls. **Native delivery is owned exclusively by
+    // the planner** (`syncNativeNotifications`), so the old "post what just
+    // crossed into delivered" path is gone — that was a second, differently
+    // identified alarm for the same reminder, and the source of duplicate or
+    // burst notifications when the app happened to be open.
 
     // On web environments, show external browser notifications for newly delivered cues
     if (!nativeAvailable()) {
@@ -1662,71 +1622,17 @@ export const useStore = create<MomentumState>()((set, get) => ({
   },
 
   /**
-   * Keep the native schedule in sync with reality. Runs after every change
-   * and whenever the app resumes: cancel outdated, schedule the meaningful
-   * handful, persist what is pending. No-op on the web.
+   * Keep Android's alarm queue in sync with the planner.
+   *
+   * Serialized through `nativeSyncQueue`, so concurrent callers (task
+   * mutations, resume, the 60 s tick, permission flows) queue behind each other
+   * instead of interleaving cancel/schedule calls. No-op on the web.
    */
   syncNativeNotifications: async () => {
-    const s = get();
-    if (!nativeAvailable()) return;
-
-    const settings = s.notificationSettings;
-    const now = new Date();
-    const permission = s.notificationPermission;
-
-    if (!settings.enabled || permission !== "granted") {
-      const tracked = (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
-      if (tracked.length > 0) {
-        await resyncNative(tracked, []);
-        await writeMetaValue("scheduledNotificationIds", []);
-        devLog("native schedule cleared (disabled or no permission)");
-      }
-      return;
-    }
-
-    const storedOrdinary =
-      (await readMetaValue<OrdinaryPlan>("ordinaryReminderPlan")) ?? null;
-    const { records, ordinaryAt } = buildNativeSchedule(get, now, storedOrdinary);
-    const nextRecords = records.slice(0, 12); // keep the meaningful few
-
-    // Anchor today's nudge so it fires at the same moment no matter how often
-    // the app is opened. This is what turns "the app happened to be open" into
-    // "Android will wake up and tell the user".
-    if (ordinaryAt) {
-      const plan: OrdinaryPlan = { date: dateKey(now), at: ordinaryAt.toISOString() };
-      if (storedOrdinary?.date !== plan.date || storedOrdinary?.at !== plan.at) {
-        await writeMetaValue("ordinaryReminderPlan", plan);
-      }
-    } else if (storedOrdinary && storedOrdinary.date !== dateKey(now)) {
-      await writeMetaValue("ordinaryReminderPlan", null);
-    }
-
-    const tracked =
-      (await readMetaValue<NativeNotifRecord[]>("scheduledNotificationIds")) ?? [];
-
-    // Skip the native round-trip when nothing changed. Stored records have
-    // round-tripped through IndexedDB, so compare timestamps defensively.
-    const same =
-      tracked.length === nextRecords.length &&
-      tracked.every(
-        (t, i) =>
-          t.key === nextRecords[i].key &&
-          recordAtMs(t.at) === nextRecords[i].at.getTime(),
-      );
-    if (same) {
-      devLog("native schedule unchanged", nextRecords.length);
-      return;
-    }
-
-    const outcome = await resyncNative(tracked, nextRecords);
-    await writeMetaValue("scheduledNotificationIds", nextRecords);
-    devLog("native schedule synced", {
-      count: nextRecords.length,
-      scheduled: outcome.scheduled,
-      warning: outcome.warning,
-      error: outcome.error,
-      keys: nextRecords.map((r) => r.key),
-    });
+    const run = nativeSyncQueue.then(() => syncNativeOnce(get, set));
+    // Keep the chain alive even if one run rejects; the caller still sees it.
+    nativeSyncQueue = run.catch(() => {});
+    await run;
   },
 
   dismissNotification: (id) => {
