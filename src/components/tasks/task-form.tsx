@@ -1,61 +1,54 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, ChevronDown, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  Plus,
+} from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Select, Textarea } from "@/components/ui/form";
+import { Field, Input, Textarea } from "@/components/ui/form";
 import { Segmented } from "@/components/ui/segmented";
 import { useStore } from "@/lib/store";
 import { useModalStack } from "@/lib/modal-stack";
-import type {
-  Priority,
-  Task,
-  TaskDuration,
-} from "@/lib/types";
-import { normalizeDuration, plannedMinutesOf } from "@/lib/duration";
+import type { Priority, Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { scheduleSummary } from "@/lib/labels";
-
-type SectionKey = "daily" | "remainder" | "occasional" | `custom:${string}`;
+import {
+  REMINDER_PRESETS,
+  buildTaskInput,
+  canContinue,
+  defaultWizardState,
+  durationMinutes,
+  durationSummary,
+  isRecurringKey,
+  scheduleContextFor,
+  sectionOptions,
+  summaryLines,
+  toLocalInput,
+  wizardSteps,
+  type ReminderPreset,
+  type SectionKey,
+  type WizardState,
+  type WizardStep,
+} from "@/lib/task-wizard";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** Pass a task to edit; otherwise creates. */
+  /** Pass a task to edit; otherwise creates through the wizard. */
   task?: Task;
   defaultSection?: SectionKey;
 }
 
-/** ISO timestamp → the local "YYYY-MM-DDTHH:mm" a datetime-local input wants. */
-function toLocalInput(iso?: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/** Default new reminder: today at 19:00 local. */
-function defaultReminderInput(): string {
-  const d = new Date();
-  d.setHours(19, 0, 0, 0);
-  return toLocalInput(d.toISOString());
-}
-
-function initialSectionKey(task: Task | undefined, fallback: SectionKey): SectionKey {
-  if (!task) return fallback;
-  if (task.section === "custom") {
-    return task.customSectionId ? `custom:${task.customSectionId}` : "remainder";
-  }
-  return task.section as SectionKey;
-}
-
 export function TaskFormModal({ open, onClose, task, defaultSection = "daily" }: Props) {
   const isEdit = Boolean(task);
-  const id = task ? `modal:edit:${task.id}` : "modal:create-task";
+  const id = isEdit ? `modal:edit:${task!.id}` : "modal:create-task";
   useModalStack(id, isEdit ? "Edit task" : "Create task", onClose, open);
+
   return (
     <Modal
       open={open}
@@ -65,166 +58,364 @@ export function TaskFormModal({ open, onClose, task, defaultSection = "daily" }:
       className="sm:max-w-140"
       stackId={id}
     >
-      <TaskFormBody
-        key={open ? (task?.id ?? "create") : "closed"}
-        task={task}
-        defaultSection={defaultSection}
-        onClose={onClose}
-      />
+      {open &&
+        (task ? (
+          <EditForm key={task.id} task={task} onClose={onClose} />
+        ) : (
+          <CreateWizard key="create" defaultSection={defaultSection} onClose={onClose} />
+        ))}
     </Modal>
   );
 }
 
-function TaskFormBody({
-  task,
+/* ------------------------------------------------------------------ */
+/* Shared pieces                                                       */
+/* ------------------------------------------------------------------ */
+
+function StepHeading({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="space-y-1">
+      <h3 className="text-[17px] font-semibold tracking-tight text-foreground">{title}</h3>
+      {hint && <p className="text-[13px] leading-relaxed text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+/** Subtle progress: a dot row plus "2 of 6" — never the loudest thing here. */
+function Progress({ index, total }: { index: number; total: number }) {
+  return (
+    <div className="mb-4 flex items-center gap-2.5">
+      <div className="flex items-center gap-1" aria-hidden="true">
+        {Array.from({ length: total }, (_, i) => (
+          <span
+            key={i}
+            className={cn(
+              "h-1.5 rounded-full transition-all duration-200",
+              i === index
+                ? "w-4 bg-foreground/55"
+                : i < index
+                  ? "w-1.5 bg-foreground/28"
+                  : "w-1.5 bg-foreground/12",
+            )}
+          />
+        ))}
+      </div>
+      <span className="text-[11px] tabular-nums text-muted-foreground">
+        {index + 1} of {total}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The step footer. It sticks to the bottom of the scroll area so the primary
+ * action stays above the mobile keyboard instead of hiding behind it.
+ */
+function StepFooter({
+  left,
+  right,
+}: {
+  left: ReactNode;
+  right: ReactNode;
+}) {
+  return (
+    <div className="sticky bottom-0 z-10 -mx-5 mt-6 flex items-center justify-between gap-3 border-t border-border/70 bg-background/95 px-5 py-3 backdrop-blur sm:-mx-6 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2">{left}</div>
+      <div className="flex shrink-0 items-center gap-2">{right}</div>
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Create wizard                                                       */
+/* ------------------------------------------------------------------ */
+
+function CreateWizard({
   defaultSection,
   onClose,
 }: {
-  task?: Task;
   defaultSection: SectionKey;
   onClose: () => void;
 }) {
   const sections = useStore((s) => s.sections);
   const addTask = useStore((s) => s.addTask);
-  const updateTask = useStore((s) => s.updateTask);
-  const isEdit = Boolean(task);
+  const dailyTime = useStore((s) => s.notificationSettings.dailyReminderTime);
 
-  const startingSection = initialSectionKey(task, defaultSection);
-  // Reminder and Occasional work often has no meaningful duration ("Submit
-  // scholarship form"), so those sections start with an empty, optional field.
-  const startsUntimed = startingSection === "remainder" || startingSection === "occasional";
-  const [sectionKey, setSectionKey] = useState<SectionKey>(startingSection);
-  const [title, setTitle] = useState(task?.title ?? "");
-  // Kept as strings so "no duration" is representable without a fake 0/30.
-  const [hours, setHours] = useState(() => {
-    const planned = task ? plannedMinutesOf(task) : startsUntimed ? 0 : 30;
-    return planned > 0 ? String(Math.floor(planned / 60)) : "";
-  });
-  const [mins, setMins] = useState(() => {
-    const planned = task ? plannedMinutesOf(task) : startsUntimed ? 0 : 30;
-    return planned > 0 ? String(planned % 60) : "";
-  });
-  const [dueDate, setDueDate] = useState(task?.dueDate ?? "");
-  const [priority, setPriority] = useState<Priority>(task?.priority ?? "medium");
-  const [description, setDescription] = useState(task?.description ?? "");
-  const [nextAction, setNextAction] = useState(task?.nextAction ?? "");
-  const [notifyTime, setNotifyTime] = useState(task?.notifyTime ?? "");
-  const [remindAt, setRemindAt] = useState(toLocalInput(task?.remindAt));
-  const remindOn = remindAt.length > 0;
-  // Editing always reveals the details (due date, reminder time, …) — otherwise
-  // a bare task could never be given one. Creating keeps them collapsed.
-  const [detailsOpen, setDetailsOpen] = useState(
-    isEdit ||
-      Boolean(
-        task &&
-          (task.description || task.nextAction || task.dueDate || task.notifyTime || task.remindAt || task.priority !== undefined),
-      ),
+  const [state, setState] = useState(() => defaultWizardState(defaultSection, dailyTime));
+  const [index, setIndex] = useState(0);
+  const [done, setDone] = useState(false);
+
+  const steps = useMemo(() => wizardSteps(state), [state]);
+  // Steps can shrink when the section changes (7 → 6): clamp instead of
+  // remounting, so every value the user already typed survives.
+  const position = Math.min(index, steps.length);
+  const step: WizardStep | null = position < steps.length ? steps[position] : null;
+
+  const patch = (p: Partial<WizardState>) => setState((s) => ({ ...s, ...p }));
+  const goNext = () => setIndex(Math.min(position + 1, steps.length));
+  const goBack = () => setIndex(Math.max(0, position - 1));
+  const skip = () => goNext();
+
+  const create = () => {
+    addTask(buildTaskInput(state));
+    setDone(true);
+  };
+
+  // Subtle confirmation rather than a modal that snaps shut.
+  useEffect(() => {
+    if (!done) return;
+    const t = window.setTimeout(onClose, 1100);
+    return () => window.clearTimeout(t);
+  }, [done, onClose]);
+
+  if (done) {
+    return (
+      <div
+        role="status"
+        className="flex flex-col items-center gap-2.5 px-4 py-12 text-center"
+      >
+        <CheckCircle2 className="h-9 w-9 text-success" strokeWidth={1.75} />
+        <p className="text-[15px] font-semibold text-foreground">Task added</p>
+        <p className="text-xs text-muted-foreground">
+          {state.sectionKey === "daily"
+            ? "It's waiting in Daily."
+            : state.sectionKey.startsWith("custom:")
+              ? "It's waiting in its section."
+              : state.sectionKey === "remainder"
+                ? "It's waiting in Reminder."
+                : "It's waiting in Occasional."}
+        </p>
+      </div>
+    );
+  }
+
+  if (step === null) {
+    // Final review — a compact summary, never the whole form again.
+    const lines = summaryLines(state, sections);
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          create();
+        }}
+        className="space-y-0"
+      >
+        <Progress index={steps.length - 1} total={steps.length} />
+        <div className="space-y-3">
+          <p className="text-[17px] font-semibold leading-snug tracking-tight text-foreground">
+            {state.title.trim()}
+          </p>
+          <div className="divide-y divide-border/60 rounded-xl border border-border bg-card/60 px-3.5">
+            {lines.map((line) => (
+              <div
+                key={line.label}
+                className="flex items-start justify-between gap-4 py-2 text-[13px]"
+              >
+                <span className="shrink-0 text-muted-foreground">{line.label}</span>
+                <span className="min-w-0 break-words text-right font-medium text-foreground">
+                  {line.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <StepFooter
+          left={
+            <Button variant="ghost" type="button" onClick={goBack}>
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </Button>
+          }
+          right={
+            <Button variant="primary" type="submit">
+              <Plus className="h-4 w-4" /> Create task
+            </Button>
+          }
+        />
+      </form>
+    );
+  }
+
+  const optional = step !== "what" && step !== "where";
+  const ready = canContinue(state, step);
+
+  const footer = (
+    <StepFooter
+      left={
+        <>
+          {position > 0 && (
+            <Button variant="ghost" type="button" onClick={goBack}>
+              <ArrowLeft className="h-3.5 w-3.5" /> Back
+            </Button>
+          )}
+          {optional && step !== "time" && (
+            <Button variant="ghost" type="button" onClick={skip}>
+              Skip
+            </Button>
+          )}
+        </>
+      }
+      right={
+        <Button variant="primary" type="submit" disabled={!ready}>
+          Continue <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
+      }
+    />
   );
-
-  const pickSection = (key: SectionKey) => {
-    setSectionKey(key);
-  };
-  const enteredMinutes = (Number(hours) || 0) * 60 + (Number(mins) || 0);
-  // `null` is the explicit "no duration" representation — never a fake default.
-  const estimatedMinutes: TaskDuration = normalizeDuration(enteredMinutes);
-  const canSubmit = title.trim().length > 0;
-  const selectedSchedule = sectionKey.startsWith("custom:")
-    ? sections.find((section) => section.id === sectionKey.slice("custom:".length))?.schedule
-    : sectionKey === "daily"
-      ? { type: "daily" as const }
-      : undefined;
-
-  const submit = () => {
-    if (!canSubmit) return;
-    let section: Task["section"] = sectionKey as Task["section"];
-    let customSectionId: string | undefined;
-    if (sectionKey.startsWith("custom:")) {
-      section = "custom";
-      customSectionId = sectionKey.slice("custom:".length);
-    }
-    if (isEdit && task) {
-      updateTask(task.id, {
-        title: title.trim(),
-        section,
-        customSectionId,
-        estimatedMinutes,
-        description: description.trim() || undefined,
-        nextAction: nextAction.trim() || undefined,
-        dueDate: dueDate || undefined,
-        priority,
-        notifyTime: notifyTime || undefined,
-        remindAt: remindAt ? new Date(remindAt).toISOString() : undefined,
-      });
-    } else {
-      addTask({
-        title: title.trim(),
-        section,
-        customSectionId,
-        estimatedMinutes,
-        description: description.trim() || undefined,
-        nextAction: nextAction.trim() || undefined,
-        dueDate: dueDate || undefined,
-        priority,
-        notifyTime: notifyTime || undefined,
-        remindAt: remindAt ? new Date(remindAt).toISOString() : undefined,
-      });
-    }
-    onClose();
-  };
 
   return (
     <form
-      className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
-        submit();
+        if (ready) goNext();
       }}
+      className="space-y-0"
     >
-      <Field label="Task name" htmlFor="tf-title">
-        <Input
-          id="tf-title"
-          autoFocus
-          placeholder="What do you want to work on?"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          maxLength={120}
-          className="h-10 text-[15px]"
-        />
-      </Field>
+      <Progress index={position} total={steps.length} />
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Section" htmlFor="tf-section">
-          <Select
-            id="tf-section"
-            value={sectionKey}
-            onChange={(e) => pickSection(e.target.value as SectionKey)}
-          >
-            <option value="daily">Daily</option>
-            <option value="remainder">Reminder</option>
-            <option value="occasional">Occasional</option>
-            {sections.map((s) => (
-              <option key={s.id} value={`custom:${s.id}`}>
-                {s.icon ? `${s.icon} ` : ""}
-                {s.name}
-              </option>
-            ))}
-          </Select>
-          {selectedSchedule && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {scheduleSummary(selectedSchedule)}
-            </p>
-          )}
-        </Field>
+      {step === "what" && (
+        <div className="space-y-4">
+          <StepHeading
+            title="What do you want to accomplish?"
+            hint="One clear thing Momentum can help you with."
+          />
+          <Input
+            id="tw-title"
+            autoFocus
+            value={state.title}
+            onChange={(e) => patch({ title: e.target.value })}
+            placeholder="Practice Binary Search"
+            maxLength={120}
+            aria-label="Task name"
+            className="h-12 text-base"
+          />
+          <p className="text-xs text-muted-foreground">
+            e.g. Study Machine Learning · Submit assignment
+          </p>
+        </div>
+      )}
 
-        <Field label="Estimated time" hint="optional">
+      {step === "where" && (
+        <div className="space-y-3">
+          <StepHeading
+            title="Where should this live?"
+            hint="Momentum only shows lists that exist in your workspace."
+          />
+          <div role="radiogroup" aria-label="Section" className="space-y-2">
+            {sectionOptions(sections).map((option) => {
+              const selected = option.key === state.sectionKey;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => patch({ sectionKey: option.key })}
+                  className={cn(
+                    "flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
+                    selected
+                      ? "border-primary/55 bg-primary/[0.06]"
+                      : "border-border bg-card/60 hover:bg-muted/40",
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2 transition-colors",
+                      selected ? "border-primary bg-primary" : "border-foreground/30",
+                    )}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-medium text-foreground">
+                      {option.icon ? `${option.icon} ` : ""}
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                      {option.hint}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {step === "when" && (
+        <div className="space-y-4">
+          <StepHeading
+            title="When?"
+            hint={
+              state.sectionKey === "remainder"
+                ? "Optional — until it's done, this gets a gentle weekly nudge."
+                : "Optional — until it's done, this gets a gentle monthly nudge."
+            }
+          />
+          <Field label="Due date" hint="optional" htmlFor="tw-due">
+            <Input
+              id="tw-due"
+              type="date"
+              value={state.dueDate}
+              onChange={(e) => patch({ dueDate: e.target.value })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {step === "time" && (
+        <div className="space-y-4">
+          <StepHeading
+            title="How much time do you expect this to take?"
+            hint="Optional — tasks without a duration are tracked by completion."
+          />
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Duration">
+            {[
+              { label: "15 min", hours: "", mins: "15" },
+              { label: "30 min", hours: "", mins: "30" },
+              { label: "1 hour", hours: "1", mins: "0" },
+            ].map((chip) => {
+              const selected = state.hours === chip.hours && state.mins === chip.mins;
+              return (
+                <button
+                  key={chip.label}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => patch({ hours: chip.hours, mins: chip.mins })}
+                  className={cn(
+                    "rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
+                    selected
+                      ? "border-primary/55 bg-primary/[0.06] text-foreground"
+                      : "border-border bg-card/60 text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => patch({ hours: "", mins: "" })}
+              className={cn(
+                "rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
+                durationMinutes(state) === null
+                  ? "border-primary/55 bg-primary/[0.06] text-foreground"
+                  : "border-border bg-card/60 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Skip
+            </button>
+          </div>
           <div className="flex items-center gap-1.5">
             <Input
               type="number"
               min={0}
               max={24}
-              value={hours}
+              value={state.hours}
               placeholder="–"
-              onChange={(e) => setHours(e.target.value)}
+              onChange={(e) => patch({ hours: e.target.value })}
               aria-label="Hours"
               className="min-w-0 flex-1 px-2 text-center font-mono tnum"
             />
@@ -234,155 +425,504 @@ function TaskFormBody({
               min={0}
               max={59}
               step={5}
-              value={mins}
+              value={state.mins}
               placeholder="–"
-              onChange={(e) => setMins(e.target.value)}
+              onChange={(e) => patch({ mins: e.target.value })}
               aria-label="Minutes"
               className="min-w-0 flex-1 px-2 text-center font-mono tnum"
             />
             <span className="font-mono text-[11px] text-muted-foreground">min</span>
-            {estimatedMinutes !== null && (
-              <button
-                type="button"
-                onClick={() => {
-                  setHours("");
-                  setMins("");
-                }}
-                aria-label="Remove duration"
-                title="Remove duration"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={2} />
-              </button>
-            )}
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {estimatedMinutes !== null
-              ? `${formatMinutes(enteredMinutes)} planned · counts toward today's progress`
-              : "No duration — this task is tracked by completion only."}
+          <p className="text-xs text-muted-foreground">
+            {durationMinutes(state) === null
+              ? "No duration — fine for reminders and someday work."
+              : `${formatMinutes(durationMinutes(state)!)} planned for this task.`}
           </p>
-        </Field>
-      </div>
-
-      {/* Progressive disclosure — advanced options stay out of the way. */}
-      {(
-        <button
-          type="button"
-          onClick={() => setDetailsOpen((v) => !v)}
-          aria-expanded={detailsOpen}
-          className="flex w-full items-center justify-between rounded-lg border border-border/70 bg-muted/25 px-3.5 py-2.5 text-[13px] font-medium text-foreground/85 transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-        >
-          Add details
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 text-muted-foreground transition-transform duration-200",
-              detailsOpen && "rotate-180",
-            )}
-            strokeWidth={2}
-          />
-        </button>
+        </div>
       )}
 
-      {detailsOpen && (
+      {step === "next" && (
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Due date" hint="optional" htmlFor="tf-due">
+          <StepHeading
+            title="What is the next small action?"
+            hint="Optional — the tiny first step that makes starting easy."
+          />
+          <Input
+            id="tw-next"
+            autoFocus
+            value={state.nextAction}
+            onChange={(e) => patch({ nextAction: e.target.value })}
+            placeholder="Open LeetCode and solve the first problem."
+            maxLength={160}
+            aria-label="Next action"
+          />
+        </div>
+      )}
+
+      {step === "reminder" && (
+        <div className="space-y-4">
+          <StepHeading
+            title={
+              isRecurringKey(state.sectionKey)
+                ? "Remind me at a time?"
+                : "Want me to remind you?"
+            }
+            hint={
+              isRecurringKey(state.sectionKey)
+                ? "This task lives on its schedule, so Momentum nudges it daily. Pick a time to choose when."
+                : "Optional — off by default. This reminder fires exactly when you set it."
+            }
+          />
+          <Segmented<"off" | "on">
+            className="w-40"
+            options={[
+              { value: "off", label: "No" },
+              { value: "on", label: "Yes" },
+            ]}
+            value={state.reminderOn ? "on" : "off"}
+            onChange={(v) => patch({ reminderOn: v === "on" })}
+          />
+          {state.reminderOn && isRecurringKey(state.sectionKey) && (
+            <Field label="Time" htmlFor="tw-remind-time">
               <Input
-                id="tf-due"
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-              />
-            </Field>
-            <Field label="Priority">
-              <Segmented<Priority>
-                className="w-full"
-                options={[
-                  { value: "low", label: "Low" },
-                  { value: "medium", label: "Med" },
-                  { value: "high", label: "High" },
-                ]}
-                value={priority}
-                onChange={setPriority}
-              />
-            </Field>
-            <Field label="Reminder time" hint="advanced — optional" htmlFor="tf-notify">
-              <Input
-                id="tf-notify"
+                id="tw-remind-time"
                 type="time"
-                value={notifyTime}
-                onChange={(e) => setNotifyTime(e.target.value)}
+                value={state.reminderTime}
+                onChange={(e) => patch({ reminderTime: e.target.value })}
+                autoFocus
               />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Leave empty to follow the section&apos;s schedule or the default reminder time.
-              </p>
             </Field>
-          </div>
-
-          <Field label="Remind me once" hint="optional — a one-time reminder">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <label className="flex items-center gap-2 text-[13px] text-foreground/85">
-                <input
-                  type="checkbox"
-                  checked={remindOn}
-                  onChange={(e) =>
-                    setRemindAt(e.target.checked ? defaultReminderInput() : "")
-                  }
-                  className="h-4 w-4 rounded border-input accent-[var(--primary)]"
-                />
-                Remind me
-              </label>
-              {remindOn && (
-                <input
-                  type="datetime-local"
-                  value={remindAt}
-                  onChange={(e) => setRemindAt(e.target.value)}
-                  aria-label="Reminder date and time"
-                  className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card px-2 font-mono text-xs tnum text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
-                />
-              )}
+          )}
+          {state.reminderOn && !isRecurringKey(state.sectionKey) && (
+            <div className="space-y-2.5" role="radiogroup" aria-label="Reminder moment">
+              {REMINDER_PRESETS.map((preset) => {
+                const selected = preset.id === state.reminderPreset;
+                return (
+                  <div key={preset.id} className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => patch({ reminderPreset: preset.id as ReminderPreset })}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
+                        selected
+                          ? "border-primary/55 bg-primary/[0.06] text-foreground"
+                          : "border-border bg-card/60 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "h-3 w-3 rounded-full border-2",
+                          selected ? "border-primary bg-primary" : "border-foreground/30",
+                        )}
+                      />
+                      {preset.label}
+                    </button>
+                    {preset.id === "custom" && selected && (
+                      <Input
+                        type="datetime-local"
+                        value={state.reminderCustom}
+                        onChange={(e) => patch({ reminderCustom: e.target.value })}
+                        aria-label="Custom reminder moment"
+                        autoFocus
+                        className="min-w-0 flex-1"
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              A reminder you set yourself always fires, even during quiet hours.
-            </p>
-          </Field>
+          )}
+        </div>
+      )}
 
-          <Field label="Next action" hint="optional — the concrete next step">
-            <Input
-              placeholder="e.g. Complete problem using two pointers"
-              value={nextAction}
-              onChange={(e) => setNextAction(e.target.value)}
-              maxLength={160}
+      {step === "details" && (
+        <div className="space-y-4">
+          <StepHeading
+            title="Anything else?"
+            hint="Optional — notes and priority only if they help."
+          />
+          <Field label="Description" hint="optional" htmlFor="tw-desc">
+            <Textarea
+              id="tw-desc"
+              value={state.description}
+              onChange={(e) => patch({ description: e.target.value })}
+              placeholder="What does this involve? Topics, resources, steps…"
+              rows={3}
             />
           </Field>
-
-          <Field label="Description" hint="optional">
-            <Textarea
-              placeholder="What does this involve? Topics, resources, steps…"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
+          <Field label="Priority">
+            <Segmented<Priority>
+              className="w-full"
+              options={[
+                { value: "low", label: "Low" },
+                { value: "medium", label: "Med" },
+                { value: "high", label: "High" },
+              ]}
+              value={state.priority}
+              onChange={(v) => patch({ priority: v })}
             />
           </Field>
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2 border-t border-border/70 pt-4">
-        <Button variant="ghost" type="button" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button variant="primary" type="submit" disabled={!canSubmit}>
-          {isEdit ? (
-            <>
-              <CheckCircle2 className="h-4 w-4" /> Save changes
-            </>
-          ) : (
-            <>
-              <Plus className="h-4 w-4" /> Create task
-            </>
-          )}
-        </Button>
+      {footer}
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Edit — progressive sections, no wizard                              */
+/* ------------------------------------------------------------------ */
+
+interface EditDraft {
+  title: string;
+  sectionKey: SectionKey;
+  dueDate: string;
+  hours: string;
+  mins: string;
+  nextAction: string;
+  reminderOn: boolean;
+  reminderCustom: string;
+  reminderTime: string;
+  description: string;
+  priority: Priority;
+}
+
+function draftFromTask(task: Task, dailyTime: string): EditDraft {
+  const planned = typeof task.estimatedMinutes === "number" && task.estimatedMinutes > 0
+    ? task.estimatedMinutes
+    : null;
+  const sectionKey: SectionKey =
+    task.section === "custom" && task.customSectionId
+      ? `custom:${task.customSectionId}`
+      : (task.section as SectionKey);
+  const oneShot = Boolean(task.remindAt);
+  return {
+    title: task.title,
+    sectionKey,
+    dueDate: task.dueDate ?? "",
+    hours: planned !== null ? String(Math.floor(planned / 60)) : "",
+    mins: planned !== null ? String(planned % 60) : "",
+    nextAction: task.nextAction ?? "",
+    reminderOn: oneShot || Boolean(task.notifyTime),
+    reminderCustom: oneShot ? toLocalInput(task.remindAt) : "",
+    reminderTime: task.notifyTime ?? dailyTime,
+    description: task.description ?? "",
+    priority: task.priority ?? "medium",
+  };
+}
+
+/** Friendly "Oct 3, 7:00 PM" for a datetime-local value. */
+function formatMoment(local: string): string {
+  const d = new Date(local);
+  if (!Number.isFinite(d.getTime())) return "On";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function EditForm({ task, onClose }: { task: Task; onClose: () => void }) {
+  const sections = useStore((s) => s.sections);
+  const updateTask = useStore((s) => s.updateTask);
+  const dailyTime = useStore((s) => s.notificationSettings.dailyReminderTime);
+
+  // The snapshot the save action diffs against — computed once at mount, so
+  // opening one section and saving commits nothing for the untouched ones.
+  const [initial] = useState(() => draftFromTask(task, dailyTime));
+  const [draft, setDraft] = useState<EditDraft>(initial);
+  const [openSection, setOpenSection] = useState<string | null>("basics");
+
+  const patch = (p: Partial<EditDraft>) => setDraft((d) => ({ ...d, ...p }));
+  const recurring = isRecurringKey(draft.sectionKey);
+  const scheduleContext = scheduleContextFor(draft.sectionKey, sections);
+
+  const rows: { id: string; label: string; sub: string }[] = [
+    { id: "basics", label: "Basics", sub: draft.title || "Title" },
+    {
+      id: "schedule",
+      label: "Schedule",
+      sub: scheduleContext ?? (draft.dueDate ? `Due ${draft.dueDate}` : "No due date"),
+    },
+    { id: "time", label: "Time", sub: durationSummary(draft) },
+    {
+      id: "reminder",
+      label: "Reminder",
+      sub: draft.reminderOn
+        ? recurring
+          ? `Daily at ${draft.reminderTime}`
+          : draft.reminderCustom
+            ? formatMoment(draft.reminderCustom)
+            : "On"
+        : "Off",
+    },
+    { id: "details", label: "Details", sub: draft.description ? "Has notes" : "No notes" },
+  ];
+
+  const save = () => {
+    const before = initial;
+    const nextMinutes = durationMinutes(draft);
+    const beforeMinutes = durationMinutes(before);
+    const nextSection: Task["section"] = draft.sectionKey.startsWith("custom:")
+      ? "custom"
+      : (draft.sectionKey as "daily" | "remainder" | "occasional");
+    const beforeSection: Task["section"] = before.sectionKey.startsWith("custom:")
+      ? "custom"
+      : (before.sectionKey as "daily" | "remainder" | "occasional");
+
+    const changes: Partial<Task> = {};
+    if (draft.title.trim() && draft.title.trim() !== before.title.trim()) {
+      changes.title = draft.title.trim();
+    }
+    if (nextSection !== beforeSection || draft.sectionKey !== before.sectionKey) {
+      changes.section = nextSection;
+      changes.customSectionId = draft.sectionKey.startsWith("custom:")
+        ? draft.sectionKey.slice("custom:".length)
+        : undefined;
+    }
+    if (nextMinutes !== beforeMinutes) changes.estimatedMinutes = nextMinutes;
+    if (draft.dueDate !== before.dueDate) changes.dueDate = draft.dueDate || undefined;
+    if (draft.nextAction.trim() !== before.nextAction.trim()) {
+      changes.nextAction = draft.nextAction.trim() || undefined;
+    }
+    if (draft.description.trim() !== before.description.trim()) {
+      changes.description = draft.description.trim() || undefined;
+    }
+    if (draft.priority !== before.priority) changes.priority = draft.priority;
+
+    const nextNotify = draft.reminderOn && recurring ? draft.reminderTime.trim() || undefined : undefined;
+    const beforeNotify = before.reminderOn && isRecurringKey(before.sectionKey)
+      ? before.reminderTime.trim() || undefined
+      : undefined;
+    if (nextNotify !== beforeNotify) changes.notifyTime = nextNotify;
+
+    const nextAt =
+      draft.reminderOn && !recurring && draft.reminderCustom
+        ? new Date(draft.reminderCustom).toISOString()
+        : undefined;
+    const beforeAt =
+      before.reminderOn && !isRecurringKey(before.sectionKey) && before.reminderCustom
+        ? new Date(before.reminderCustom).toISOString()
+        : undefined;
+    if (nextAt !== beforeAt) changes.remindAt = nextAt;
+
+    if (Object.keys(changes).length > 0) updateTask(task.id, changes);
+    onClose();
+  };
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+      className="space-y-0"
+    >
+      <div className="space-y-2">
+        {rows.map((row) => {
+          const expanded = openSection === row.id;
+          return (
+            <div key={row.id} className="rounded-xl border border-border bg-card/60">
+              <button
+                type="button"
+                aria-expanded={expanded}
+                onClick={() => setOpenSection(expanded ? null : row.id)}
+                className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 rounded-xl"
+              >
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-medium text-foreground">
+                    {row.label}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">{row.sub}</span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                    expanded && "rotate-180",
+                  )}
+                  strokeWidth={2}
+                />
+              </button>
+
+              {expanded && (
+                <div className="space-y-4 border-t border-border/60 px-3.5 py-3.5">
+                  {row.id === "basics" && (
+                    <>
+                      <Field label="Task name" htmlFor="te-title">
+                        <Input
+                          id="te-title"
+                          autoFocus
+                          value={draft.title}
+                          onChange={(e) => patch({ title: e.target.value })}
+                          maxLength={120}
+                          aria-label="Task name"
+                        />
+                      </Field>
+                      <Field label="Section" htmlFor="te-section">
+                        <select
+                          id="te-section"
+                          value={draft.sectionKey}
+                          onChange={(e) => patch({ sectionKey: e.target.value as SectionKey })}
+                          className="h-9 w-full cursor-pointer rounded-lg border border-input bg-card px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/60"
+                        >
+                          {sectionOptions(sections).map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {option.icon ? `${option.icon} ` : ""}
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Next action" hint="optional" htmlFor="te-next">
+                        <Input
+                          id="te-next"
+                          value={draft.nextAction}
+                          onChange={(e) => patch({ nextAction: e.target.value })}
+                          placeholder="The concrete next step"
+                          maxLength={160}
+                        />
+                      </Field>
+                    </>
+                  )}
+
+                  {row.id === "schedule" && (
+                    <>
+                      {scheduleContext && (
+                        <p className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                          {draft.sectionKey.startsWith("custom:")
+                            ? `Repeats with this section: ${scheduleContext}`
+                            : "Daily work comes back every day."}
+                        </p>
+                      )}
+                      <Field label="Due date" hint="optional" htmlFor="te-due">
+                        <Input
+                          id="te-due"
+                          type="date"
+                          value={draft.dueDate}
+                          onChange={(e) => patch({ dueDate: e.target.value })}
+                        />
+                      </Field>
+                    </>
+                  )}
+
+                  {row.id === "time" && (
+                    <>
+                      <Field label="Estimated time" hint="optional">
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="number"
+                            min={0}
+                            max={24}
+                            value={draft.hours}
+                            placeholder="–"
+                            onChange={(e) => patch({ hours: e.target.value })}
+                            aria-label="Hours"
+                            className="min-w-0 flex-1 px-2 text-center font-mono tnum"
+                          />
+                          <span className="font-mono text-[11px] text-muted-foreground">hr</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={59}
+                            step={5}
+                            value={draft.mins}
+                            placeholder="–"
+                            onChange={(e) => patch({ mins: e.target.value })}
+                            aria-label="Minutes"
+                            className="min-w-0 flex-1 px-2 text-center font-mono tnum"
+                          />
+                          <span className="font-mono text-[11px] text-muted-foreground">min</span>
+                        </div>
+                      </Field>
+                      <p className="text-xs text-muted-foreground">
+                        Empty means completion-based — no duration, no time tracking.
+                      </p>
+                    </>
+                  )}
+
+                  {row.id === "reminder" && (
+                    <>
+                      <Segmented<"off" | "on">
+                        className="w-40"
+                        options={[
+                          { value: "off", label: "Off" },
+                          { value: "on", label: "On" },
+                        ]}
+                        value={draft.reminderOn ? "on" : "off"}
+                        onChange={(v) => patch({ reminderOn: v === "on" })}
+                      />
+                      {draft.reminderOn && recurring && (
+                        <Field label="Time" htmlFor="te-remind-time">
+                          <Input
+                            id="te-remind-time"
+                            type="time"
+                            value={draft.reminderTime}
+                            onChange={(e) => patch({ reminderTime: e.target.value })}
+                          />
+                        </Field>
+                      )}
+                      {draft.reminderOn && !recurring && (
+                        <Field label="Reminder moment" htmlFor="te-remind-at">
+                          <Input
+                            id="te-remind-at"
+                            type="datetime-local"
+                            value={draft.reminderCustom}
+                            onChange={(e) => patch({ reminderCustom: e.target.value })}
+                          />
+                        </Field>
+                      )}
+                    </>
+                  )}
+
+                  {row.id === "details" && (
+                    <>
+                      <Field label="Description" hint="optional" htmlFor="te-desc">
+                        <Textarea
+                          id="te-desc"
+                          value={draft.description}
+                          onChange={(e) => patch({ description: e.target.value })}
+                          rows={3}
+                        />
+                      </Field>
+                      <Field label="Priority">
+                        <Segmented<Priority>
+                          className="w-full"
+                          options={[
+                            { value: "low", label: "Low" },
+                            { value: "medium", label: "Med" },
+                            { value: "high", label: "High" },
+                          ]}
+                          value={draft.priority}
+                          onChange={(v) => patch({ priority: v })}
+                        />
+                      </Field>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      <StepFooter
+        left={
+          <Button variant="ghost" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+        }
+        right={
+          <Button variant="primary" type="submit">
+            <CheckCircle2 className="h-4 w-4" /> Save changes
+          </Button>
+        }
+      />
     </form>
   );
 }
