@@ -77,7 +77,7 @@ export function Modal({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
       <div
-        className="anim-fade-in absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+        className="anim-fade-in absolute inset-0 bg-black/50"
         onClick={onClose}
         aria-hidden
       />
@@ -114,7 +114,7 @@ export function Modal({
               aria-label="Close"
               className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
-              <X className="h-4 w-4" strokeWidth={2} />
+              <X className="h-4 w-4" strokeWidth={1.75} />
             </button>
           </div>
         )}

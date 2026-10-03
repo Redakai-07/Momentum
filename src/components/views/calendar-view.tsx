@@ -202,7 +202,7 @@ export function CalendarView() {
             </div>
             {dayTasks.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border/70 px-4 py-8 text-center">
-                <CalendarDays className="mx-auto h-4 w-4 text-muted-foreground/60" strokeWidth={1.5} />
+                <CalendarDays className="mx-auto h-4 w-4 text-muted-foreground/60" strokeWidth={1.75} />
                 <p className="mt-2 text-[13px] font-medium text-muted-foreground">No planned activity</p>
                 <p className="mt-0.5 text-xs text-muted-foreground/70">A clear day.</p>
               </div>

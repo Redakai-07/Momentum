@@ -163,7 +163,7 @@ function EmptyNotes({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="surface anim-fade-in flex flex-col items-center gap-3 rounded-2xl px-6 py-14 text-center">
       <span className="grid h-14 w-14 place-items-center rounded-2xl border border-border bg-muted/40 text-muted-foreground">
-        <NotebookPen className="h-6 w-6" strokeWidth={1.5} />
+        <NotebookPen className="h-6 w-6" strokeWidth={1.75} />
       </span>
       <div>
         <p className="text-[15px] font-semibold tracking-tight text-foreground">
@@ -175,7 +175,7 @@ function EmptyNotes({ onCreate }: { onCreate: () => void }) {
         </p>
       </div>
       <Button variant="primary" size="md" onClick={onCreate} className="mt-1">
-        <Plus className="h-4 w-4" strokeWidth={2.2} /> Create note
+        <Plus className="h-4 w-4" strokeWidth={1.75} /> Create note
       </Button>
     </div>
   );
@@ -185,7 +185,7 @@ function EmptyHobbies({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="surface anim-fade-in flex flex-col items-center gap-3 rounded-2xl px-6 py-14 text-center">
       <span className="grid h-14 w-14 place-items-center rounded-2xl border border-border bg-muted/40 text-muted-foreground">
-        <Sparkles className="h-6 w-6" strokeWidth={1.5} />
+        <Sparkles className="h-6 w-6" strokeWidth={1.75} />
       </span>
       <div>
         <p className="text-[15px] font-semibold tracking-tight text-foreground">
@@ -197,7 +197,7 @@ function EmptyHobbies({ onCreate }: { onCreate: () => void }) {
         </p>
       </div>
       <Button variant="primary" size="md" onClick={onCreate} className="mt-1">
-        <Plus className="h-4 w-4" strokeWidth={2.2} /> Add hobby
+        <Plus className="h-4 w-4" strokeWidth={1.75} /> Add hobby
       </Button>
       <div className="mt-1 flex flex-wrap justify-center gap-1.5">
         {HOBBY_SUGGESTIONS.map((s) => (
@@ -353,7 +353,7 @@ export function HobbyNotesView() {
             onClick={() => (tab === "notes" ? startNewNote(hobbyFilter ?? undefined) : startNewHobby())}
             className="rounded-full"
           >
-            <Plus className="h-4 w-4" strokeWidth={2.2} />
+            <Plus className="h-4 w-4" strokeWidth={1.75} />
             {tab === "notes" ? "New note" : "New hobby"}
           </Button>
         </div>
@@ -384,7 +384,7 @@ export function HobbyNotesView() {
                   aria-label="Clear search"
                   className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
-                  <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  <X className="h-3.5 w-3.5" strokeWidth={1.75} />
                 </button>
               )}
             </div>
@@ -528,7 +528,7 @@ export function HobbyNotesView() {
                 <Pencil className="h-3.5 w-3.5" strokeWidth={2} /> Edit
               </Button>
               <Button variant="outline" size="sm" onClick={() => startNewNote(openHobby.id)}>
-                <Plus className="h-3.5 w-3.5" strokeWidth={2.2} /> Add note
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add note
               </Button>
               <Button
                 variant="danger"

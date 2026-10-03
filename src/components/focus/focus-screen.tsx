@@ -187,7 +187,7 @@ export function FocusScreen() {
 
         {task?.nextAction && (
           <p className="flex max-w-xs items-start gap-1.5 text-center text-[13px] leading-relaxed text-muted-foreground">
-            <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.2} />
+            <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={1.75} />
             <span className="text-balance">{task.nextAction}</span>
           </p>
         )}
@@ -201,7 +201,7 @@ export function FocusScreen() {
               onClick={pauseFocus}
               className="flex h-14 items-center gap-2 rounded-full bg-primary px-7 text-[15px] font-semibold text-primary-foreground transition-transform duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
-              <Pause className="h-4 w-4" strokeWidth={2.4} /> Pause
+              <Pause className="h-4 w-4" strokeWidth={1.75} /> Pause
             </button>
           ) : (
             <button
@@ -209,7 +209,7 @@ export function FocusScreen() {
               onClick={resumeFocus}
               className="flex h-14 items-center gap-2 rounded-full bg-primary px-7 text-[15px] font-semibold text-primary-foreground transition-transform duration-150 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
             >
-              <Play className="h-4 w-4" strokeWidth={2.4} /> Resume
+              <Play className="h-4 w-4" strokeWidth={1.75} /> Resume
             </button>
           )}
           <button
@@ -218,7 +218,7 @@ export function FocusScreen() {
             aria-label={focus ? "Skip to break" : "Skip break"}
             className="grid h-14 w-14 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <SkipForward className="h-4 w-4" strokeWidth={2.2} />
+            <SkipForward className="h-4 w-4" strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -226,7 +226,7 @@ export function FocusScreen() {
             aria-label="Stop focus session"
             className="grid h-14 w-14 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <Square className="h-3.5 w-3.5" strokeWidth={2.2} />
+            <Square className="h-3.5 w-3.5" strokeWidth={1.75} />
           </button>
         </div>
 

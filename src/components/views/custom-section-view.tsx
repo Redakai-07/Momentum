@@ -33,7 +33,7 @@ export function CustomSectionView({ sectionId }: { sectionId: string }) {
     return (
       <PageFrame>
         <EmptyState
-          icon={<Layers className="h-4 w-4" strokeWidth={1.5} />}
+          icon={<Layers className="h-4 w-4" strokeWidth={1.75} />}
           title="Section not found"
           body="This custom section may have been removed from your profile."
         />
@@ -58,7 +58,7 @@ export function CustomSectionView({ sectionId }: { sectionId: string }) {
         <ListSkeleton rows={4} />
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState
-          icon={<Layers className="h-4 w-4" strokeWidth={1.5} />}
+          icon={<Layers className="h-4 w-4" strokeWidth={1.75} />}
           title="Nothing in this section yet"
           body="Keep related work together here and track progress from one place."
           action={

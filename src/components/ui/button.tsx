@@ -5,8 +5,7 @@ type Variant = "primary" | "outline" | "ghost" | "soft" | "danger";
 type Size = "sm" | "md" | "icon" | "icon-sm";
 
 const variants: Record<Variant, string> = {
-  primary:
-    "bg-primary text-primary-foreground hover:bg-primary/90 shadow-soft hover:shadow-elevate",
+  primary: "bg-primary text-primary-foreground hover:bg-primary/90",
   outline:
     "border border-input bg-transparent hover:bg-muted/60 hover:border-foreground/20 text-foreground",
   ghost: "text-muted-foreground hover:text-foreground hover:bg-muted/60",
@@ -34,7 +33,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       className={cn(
         "inline-flex select-none items-center justify-center whitespace-nowrap rounded-lg font-medium shrink-0",
         // Tactile feedback: colour, shadow and a small press compression.
-        "transition-[background-color,color,box-shadow,border-color,transform] duration-150",
+        "transition-[background-color,color,border-color,transform] duration-150",
         "active:scale-[0.975]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         "disabled:pointer-events-none disabled:opacity-45 disabled:active:scale-100",

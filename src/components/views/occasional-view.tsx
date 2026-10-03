@@ -45,7 +45,7 @@ export function OccasionalView() {
         <ListSkeleton rows={4} />
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState
-          icon={<Compass className="h-4 w-4" strokeWidth={1.5} />}
+          icon={<Compass className="h-4 w-4" strokeWidth={1.75} />}
           title="Your occasional list is empty"
           body="Movies, books, places, skills — for when the moment is right."
           action={

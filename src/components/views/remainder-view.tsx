@@ -63,7 +63,7 @@ export function RemainderView() {
         <ListSkeleton rows={5} />
       ) : open.length === 0 && done.length === 0 ? (
         <EmptyState
-          icon={<LayoutList className="h-4 w-4" strokeWidth={1.5} />}
+          icon={<LayoutList className="h-4 w-4" strokeWidth={1.75} />}
           title="Nothing waiting here"
           body="Tasks that need finishing but aren't daily habits live here — assignments, deadlines, one-off projects."
           action={

@@ -96,10 +96,7 @@ export function TaskRow({
         "group relative flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left",
         "transition-colors duration-150",
         clickable &&
-          "cursor-pointer hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none",
-        // A quiet left accent once there is logged time, so in-progress work
-        // stands out from untouched rows without adding noise.
-        started && "before:absolute before:inset-y-2.5 before:left-0 before:w-[2px] before:rounded-full before:bg-primary/50",
+          "cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none",
       )}
     >
       {onToggle && !scheduledOnly && (
@@ -132,6 +129,17 @@ export function TaskRow({
           </span>
           {priorityMark(task)}
         </div>
+
+        {/* The next action is the single most useful secondary field, so it
+            gets its own line and a quiet label rather than an icon. */}
+        {!done && !scheduledOnly && task.nextAction && task.nextAction.trim().length > 0 && (
+          <p className="mt-0.5 flex items-baseline gap-1.5 text-[12.5px] leading-snug text-muted-foreground">
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
+              Next
+            </span>
+            <span className="min-w-0 break-words">{task.nextAction}</span>
+          </p>
+        )}
 
         {showMeta && (
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[11.5px] tnum text-muted-foreground">

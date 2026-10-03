@@ -318,7 +318,7 @@ export function CustomSectionManager() {
 
       {sections.length === 0 ? (
         <EmptyState
-          icon={<Layers className="h-4 w-4" strokeWidth={1.5} />}
+          icon={<Layers className="h-4 w-4" strokeWidth={1.75} />}
           title="No custom sections yet"
           body="Sections become extra groups on your dashboard and new options when creating tasks."
           className="rounded-xl border border-border bg-card/60 py-10"

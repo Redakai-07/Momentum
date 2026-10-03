@@ -111,7 +111,7 @@ function StreakMini() {
   return (
     <Link
       href="/profile"
-      className="flex items-center gap-2.5 rounded-lg border border-border/70 bg-card/60 px-3 py-2 transition-colors hover:border-border hover:bg-card"
+      className="flex items-center gap-2.5 px-2.5 py-2 transition-colors hover:text-foreground"
     >
       <Flame className="h-4 w-4 shrink-0 text-signal" fill="currentColor" strokeWidth={0} />
       <span className="tnum text-sm font-semibold text-foreground">
@@ -135,7 +135,7 @@ function DesktopSidebar() {
           width={28}
           height={28}
           unoptimized
-          className="h-7 w-7 rounded-lg object-cover shadow-soft"
+          className="h-7 w-7 rounded-lg object-cover"
         />
         <span className="text-[15px] font-semibold tracking-tight text-foreground">
           Momentum
@@ -222,7 +222,7 @@ function MobileNav() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-card/95 pb-[max(env(safe-area-inset-bottom),var(--momentum-safe-area-inset-bottom,0px),8px)] pt-1.5 shadow-[0_-1px_3px_rgba(0,0,0,0.03)] backdrop-blur-md dark:border-border/60 dark:bg-card/95 lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-card pb-[max(env(safe-area-inset-bottom),var(--momentum-safe-area-inset-bottom,0px),8px)] pt-1.5 lg:hidden"
     >
       <div className="grid grid-cols-4 px-1">
         {NAV_ITEMS.map((item) => {
@@ -234,24 +234,14 @@ function MobileNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "group flex min-h-[50px] flex-col items-center justify-center gap-1 rounded-xl py-1 transition-transform duration-150 active:scale-95",
+                "group flex min-h-[50px] flex-col items-center justify-center gap-1 rounded-lg py-1 transition-colors duration-150",
                 active ? "text-primary" : "text-muted-foreground/75 hover:text-foreground",
               )}
             >
-              <span
-                className={cn(
-                  "grid h-7 w-12 place-items-center rounded-full transition-all duration-200",
-                  active
-                    ? "bg-primary/12 text-primary"
-                    : "text-muted-foreground/75 group-hover:bg-muted/40",
-                )}
-              >
+              <span className="grid h-7 w-12 place-items-center">
                 <Icon
-                  className={cn(
-                    "h-[19px] w-[19px] transition-transform duration-200",
-                    active && "scale-105",
-                  )}
-                  strokeWidth={active ? 2.1 : 1.75}
+                  className="h-[19px] w-[19px]"
+                  strokeWidth={active ? 2 : 1.75}
                 />
               </span>
               <span

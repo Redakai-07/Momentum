@@ -13,16 +13,15 @@ export function CheckboxBox({
       aria-hidden
       className={cn(
         "flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-[6px] border",
-        "transition-[background-color,border-color,box-shadow,transform] duration-200",
+        "transition-[background-color,border-color,transform] duration-200",
         checked
-          ? "border-primary bg-primary text-primary-foreground shadow-[0_2px_8px_-2px_hsl(var(--primary)/0.6)]"
-          : // Subtle inward shadow makes the empty box read as a real target.
-            "border-foreground/25 bg-transparent shadow-[inset_0_1px_2px_hsl(var(--foreground)/0.05)] group-hover/check:border-foreground/45",
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-foreground/30 bg-transparent group-hover/check:border-foreground/55",
         className,
       )}
     >
       {checked && (
-        <Check className="anim-check h-3 w-3" strokeWidth={3.5} />
+        <Check className="anim-check h-3 w-3" strokeWidth={3} />
       )}
     </span>
   );

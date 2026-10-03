@@ -457,7 +457,7 @@ export function ProfileView() {
 
           {accomplishments.length === 0 ? (
             <EmptyState
-              icon={<Award className="h-4 w-4" strokeWidth={1.5} />}
+              icon={<Award className="h-4 w-4" strokeWidth={1.75} />}
               title="No accomplishments yet"
               body="Finish a daily routine or a reminder task permanently from its details, and it will be kept here."
             />

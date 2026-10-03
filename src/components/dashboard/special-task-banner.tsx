@@ -62,7 +62,7 @@ export function SpecialTaskBanner({
           </span>
           {current.nextAction && (
             <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-              <ArrowRight className="h-3 w-3 shrink-0 text-signal/80" strokeWidth={2.2} />
+              <ArrowRight className="h-3 w-3 shrink-0 text-signal/80" strokeWidth={1.75} />
               <span className="truncate">{current.nextAction}</span>
             </span>
           )}

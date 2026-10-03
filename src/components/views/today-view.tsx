@@ -3,14 +3,12 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowRight,
   CircleCheck,
   Flame,
   Layers,
   ListChecks,
   Plus,
   Sparkles,
-  Timer,
 } from "lucide-react";
 import { PageFrame } from "@/components/layout/page-frame";
 import { useNow } from "@/lib/hooks";
@@ -21,9 +19,8 @@ import { addDays, dateKey } from "@/lib/date";
 import { greetingForHour, formatMinutes } from "@/lib/format";
 import { scheduleSummary } from "@/lib/labels";
 import { isTimedTask, remainingMinutesOf } from "@/lib/duration";
-import { ListShell, ListSkeleton } from "@/components/ui/list";
+import { ListShell, ListSkeleton, EmptyState } from "@/components/ui/list";
 import { Button } from "@/components/ui/button";
-import { ProgressRing } from "@/components/ui/progress-ring";
 import { TaskRow } from "@/components/tasks/task-row";
 import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { TaskFormModal } from "@/components/tasks/task-form";
@@ -32,26 +29,26 @@ import { RemindersStrip } from "@/components/dashboard/reminders-strip";
 import type { Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function StreakPill({ streak }: { streak: number | null }) {
+function StreakInline({ streak }: { streak: number | null }) {
   return (
     <Link
       href="/profile"
-      className="flex items-center gap-1.5 rounded-full border border-signal/25 bg-signal-soft/50 px-2.5 py-1 transition-colors hover:border-signal/40"
+      className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
       aria-label={`${streak ?? 0} day streak — view performance`}
     >
-      <Flame className="h-3.5 w-3.5 text-signal" fill="currentColor" strokeWidth={0} />
-      <span className="tnum text-[13px] font-semibold leading-none text-signal-foreground">
-        {streak ?? "—"}
+      <Flame className="h-3.5 w-3.5 shrink-0 text-signal" fill="currentColor" strokeWidth={0} />
+      <span className="text-[12px]">
+        <span className="tnum font-semibold text-foreground">{streak ?? "—"}</span> day streak
       </span>
     </Link>
   );
 }
 
 /**
- * The hero answers one question before anything else: what is worth doing now?
+ * The header answers one question before anything else: what is worth doing now?
  *
- * The ring carries the day's completion; the copy underneath prefers the
- * concrete next task over an abstract summary.
+ * Deliberately not a card: date, greeting, a single progress line, then the
+ * concrete next task. No ring, no stat row, no decoration.
  */
 function TodayHero({
   now,
@@ -80,130 +77,94 @@ function TodayHero({
 }) {
   const done = Math.max(0, planned - remaining);
   const pct = planned > 0 ? Math.min(100, Math.round((done / planned) * 100)) : null;
+  const totalTasks = openTotal + doneTotal;
+  const taskPct = totalTasks > 0 ? Math.round((doneTotal / totalTasks) * 100) : 0;
+  const shownPct = pct ?? taskPct;
   const allDone = openTotal === 0 && doneTotal > 0;
 
   return (
-    <section className="surface anim-fade-up relative mb-6 overflow-hidden rounded-2xl p-5">
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-12 -top-14 h-40 w-40 rounded-full bg-primary/15 blur-3xl"
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -bottom-16 -left-10 h-32 w-32 rounded-full bg-signal/10 blur-3xl"
-      />
+    <section className="anim-fade-up mb-7">
+      <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+        {now.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        })}
+      </p>
+      <h1 className="mt-1.5 text-[23px] font-semibold leading-tight tracking-tight text-foreground sm:text-[27px]">
+        {greetingForHour(now.getHours())}
+        <span className="text-muted-foreground">,</span> {profileName}
+      </h1>
 
-      <div className="relative flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-            {now.toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
-          </p>
-          <h1 className="mt-1.5 text-[23px] font-semibold leading-tight tracking-tight text-foreground sm:text-[27px]">
-            {greetingForHour(now.getHours())}
-            <span className="text-muted-foreground">,</span> {profileName}
-          </h1>
-
-          {/* One quiet meta line rather than a row of decorated pills — the
-              ring beside it already answers how today is going. */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-muted-foreground">
-            <StreakPill streak={streak} />
-            {planned > 0 && (
-              <span className="flex items-center gap-1.5 font-mono tnum">
-                <Timer className="h-3 w-3" strokeWidth={2} />
-                {formatMinutes(done)} / {formatMinutes(planned)}
-              </span>
-            )}
-            {untimedCount > 0 && (
-              <span className="flex items-center gap-1.5 font-mono tnum">
-                <CircleCheck className="h-3 w-3" strokeWidth={2} />
-                {untimedCount} to-do{untimedCount === 1 ? "" : "s"}
-              </span>
-            )}
+      {/* Simple progress: one line, one hairline bar. */}
+      {totalTasks > 0 && (
+        <div className="mt-4 flex items-center gap-3">
+          <div className="h-[3px] min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
+              style={{ width: `${shownPct}%` }}
+            />
           </div>
+          <span className="shrink-0 font-mono text-[11px] tnum text-muted-foreground">
+            {planned > 0
+              ? `${formatMinutes(done)} / ${formatMinutes(planned)}`
+              : `${doneTotal} of ${totalTasks} done`}
+          </span>
         </div>
+      )}
 
-        <ProgressRing
-          value={pct}
-          size={78}
-          stroke={7}
-          className="anim-ring-in mt-0.5"
-          label={
-            pct === null
-              ? "Nothing time-based planned today"
-              : `Today ${pct} percent of planned time complete`
-          }
-        >
-          <div className="text-center leading-none">
-            <div className="tnum text-[18px] font-semibold text-foreground">
-              {pct === null ? "—" : pct}
-              {pct !== null && <span className="text-[10px] text-muted-foreground">%</span>}
-            </div>
-            <div className="mt-0.5 font-mono text-[8px] uppercase tracking-[0.14em] text-muted-foreground">
-              {pct === null ? "rest" : "done"}
-            </div>
-          </div>
-        </ProgressRing>
+      <div className="mt-3 text-muted-foreground">
+        <StreakInline streak={streak} />
+        {untimedCount > 0 && (
+          <span className="ml-3 font-mono text-[11.5px] tnum">
+            {untimedCount} to-do{untimedCount === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
 
       {/* Up next — the single most useful thing on this screen. */}
       {openTotal > 0 && upNext && (
-        <div className="relative mt-4 border-t border-border/70 pt-3.5">
-          <p className="mb-2 font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        <div className="mt-5 border-t border-border/70 pt-4">
+          <p className="mb-1.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             Up next
           </p>
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-semibold tracking-tight text-foreground">
-                {upNext.title}
-              </p>
-              {upNext.nextAction ? (
-                <p className="mt-1 flex items-start gap-1.5 text-[13px] leading-relaxed text-muted-foreground">
-                  <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.2} />
-                  <span className="min-w-0">{upNext.nextAction}</span>
-                </p>
-              ) : (
-                <p className="mt-1 text-[13px] text-muted-foreground">
-                  {isTimedTask(upNext)
-                    ? `${formatMinutes(remainingMinutesOf(upNext))} remaining`
-                    : "Completion-based — no duration needed."}
-                </p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {isTimedTask(upNext) && (
-                <Button variant="soft" size="sm" onClick={() => onOpen(upNext)}>
-                  Open
-                </Button>
-              )}
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onToggle(upNext)}
-                aria-label={`Complete ${upNext.title}`}
-              >
-                Done
+          <p className="text-[16px] font-semibold tracking-tight text-foreground">
+            {upNext.title}
+          </p>
+          {upNext.nextAction ? (
+            <p className="mt-1 flex items-baseline gap-1.5 text-[13px] leading-relaxed text-muted-foreground">
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                Next
+              </span>
+              <span className="min-w-0 break-words">{upNext.nextAction}</span>
+            </p>
+          ) : isTimedTask(upNext) ? (
+            <p className="mt-1 font-mono text-[11.5px] tnum text-muted-foreground">
+              {formatMinutes(remainingMinutesOf(upNext))} remaining
+            </p>
+          ) : null}
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => onToggle(upNext)}
+              aria-label={`Complete ${upNext.title}`}
+            >
+              Done
+            </Button>
+            {isTimedTask(upNext) && (
+              <Button variant="ghost" size="sm" onClick={() => onOpen(upNext)}>
+                Open
               </Button>
-            </div>
+            )}
           </div>
         </div>
       )}
 
       {allDone && (
-        <div className="relative mt-4 flex items-center gap-2 border-t border-border/70 pt-3.5 text-[13px] text-muted-foreground">
-          <CircleCheck className="h-4 w-4 shrink-0 text-success" strokeWidth={2} />
-          Everything planned for today is done. Nicely held.
-        </div>
-      )}
-
-      {/* The remaining-time line lives here rather than in a second progress
-          card: one place should answer "how is today going", not two. */}
-      {!allDone && planned > 0 && remaining > 0 && (
-        <p className="relative mt-3.5 border-t border-border/70 pt-3 font-mono text-[11.5px] tnum text-muted-foreground">
-          {formatMinutes(remaining)} left to reach today&rsquo;s plan
+        <p className="mt-5 flex items-center gap-2 border-t border-border/70 pt-4 text-[13px] text-muted-foreground">
+          <CircleCheck className="h-4 w-4 shrink-0 text-success" strokeWidth={1.75} />
+          Everything planned for today is done.
         </p>
       )}
     </section>
@@ -275,11 +236,11 @@ function GroupSection({
           aria-label={`Add a task to ${title}`}
           className="press flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
         >
-          <Plus className="h-4 w-4" strokeWidth={2} />
+          <Plus className="h-4 w-4" strokeWidth={1.75} />
         </button>
       </div>
       {tasks.length === 0 ? (
-        <div className="surface rounded-2xl px-4 py-4 text-center text-[13px] text-muted-foreground">
+        <div className="rounded-xl border border-border/70 px-4 py-4 text-center text-[13px] text-muted-foreground">
           {totalTasks > 0 ? "No tasks scheduled for today." : "No tasks yet — tap + to add one."}
         </div>
       ) : (
@@ -383,7 +344,7 @@ export function TodayView() {
           <div className="space-y-2.5">
             <div className="skeleton h-3 w-40 rounded bg-muted/60" />
             <div className="skeleton h-8 w-72 rounded bg-muted/60" />
-            <div className="skeleton h-24 rounded-2xl bg-muted/40" />
+            <div className="skeleton h-24 rounded-xl bg-muted/40" />
           </div>
           <ListSkeleton rows={5} />
         </div>
@@ -404,25 +365,16 @@ export function TodayView() {
                   <span className="text-muted-foreground">,</span> {profileName}
                 </h1>
               </div>
-              <div className="surface rounded-2xl pt-6">
-                <div className="flex flex-col items-center gap-3 px-6 pb-2 text-center">
-                  <span className="grid h-14 w-14 place-items-center rounded-2xl border border-border bg-muted/40 text-muted-foreground">
-                    <Sparkles className="h-6 w-6" strokeWidth={1.5} />
-                  </span>
-                  <div>
-                    <p className="text-[15px] font-semibold tracking-tight text-foreground">
-                      Nothing planned yet
-                    </p>
-                    <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
-                      Add one thing you want to make progress on today. Small and specific
-                      beats big and vague.
-                    </p>
-                  </div>
+              <EmptyState
+                icon={<Sparkles className="h-5 w-5" strokeWidth={1.75} />}
+                title="Nothing planned yet"
+                body="Add one thing you want to make progress on today. Small and specific beats big and vague."
+                action={
                   <Button variant="primary" size="md" onClick={() => openForm("daily")}>
-                    <Plus className="h-4 w-4" strokeWidth={2.2} /> Add task
+                    <Plus className="h-4 w-4" strokeWidth={1.75} /> Add task
                   </Button>
-                </div>
-              </div>
+                }
+              />
             </>
           ) : (
             <>
@@ -494,48 +446,46 @@ export function TodayView() {
                     onClick={() => openForm("daily")}
                     className="rounded-full px-5"
                   >
-                    <Plus className="h-4 w-4" strokeWidth={2} /> Add task
-                  </Button>
+                  <Plus className="h-4 w-4" strokeWidth={1.75} /> Add task
+                </Button>
                 </div>
               </div>
             </>
           )}
 
           {/*
-           * Other lists — a single row of quiet chips instead of a stack of
-           * full-width rows plus an explainer. The destinations are unchanged;
-           * they simply no longer compete with today's work for attention.
+           * Other lists — quiet text links rather than a row of pills. The
+           * destinations are unchanged; they simply no longer compete with
+           * today's work for attention.
            */}
-          <div className="mt-7 border-t border-border/70 pt-4">
-            <div className="flex flex-wrap items-center gap-1.5">
+          <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border/70 pt-4">
+            <Link
+              href="/remainder"
+              className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ListChecks className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Reminder
+            </Link>
+            <Link
+              href="/occasional"
+              className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Occasional
+            </Link>
+            {sections.map((section) => (
               <Link
-                href="/remainder"
-                className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                key={section.id}
+                href={`/section?sectionId=${encodeURIComponent(section.id)}`}
+                className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
-                <ListChecks className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Reminder
+                <Layers className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                <span className="min-w-0 truncate">
+                  {section.icon ? `${section.icon} ` : ""}
+                  {section.name}
+                </span>
               </Link>
-              <Link
-                href="/occasional"
-                className="flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
-              >
-                <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Occasional
-              </Link>
-              {sections.map((section) => (
-                <Link
-                  key={section.id}
-                  href={`/section?sectionId=${encodeURIComponent(section.id)}`}
-                  className="flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-card/60 px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
-                >
-                  <Layers className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                  <span className="min-w-0 truncate">
-                    {section.icon ? `${section.icon} ` : ""}
-                    {section.name}
-                  </span>
-                </Link>
-              ))}
-            </div>
+            ))}
           </div>
         </>
       )}
