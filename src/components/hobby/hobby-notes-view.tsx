@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
-  Layers,
   NotebookPen,
   Pencil,
   Plus,
@@ -18,17 +17,16 @@ import { useStore } from "@/lib/store";
 import {
   HOBBY_SUGGESTIONS,
   deriveNoteTitle,
-  filterNotes,
+  filterGeneralNotes,
   hobbyAccent,
   isSearching,
   noteCountsByHobby,
   noteExcerpt,
   notesForHobby,
   orderedHobbies,
-  unfiledNotes,
   formatNoteDate,
 } from "@/lib/hobbies";
-import type { Hobby, Note } from "@/lib/types";
+import type { GeneralNote, Hobby, HobbyNote } from "@/lib/types";
 import { ListSkeleton } from "@/components/ui/list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/form";
@@ -36,7 +34,11 @@ import { Modal } from "@/components/ui/modal";
 import { Segmented } from "@/components/ui/segmented";
 import { ConfirmDialog } from "@/components/ui/confirm";
 import { HobbyEditor, type HobbyDraft } from "@/components/hobby/hobby-editor";
-import { NoteEditor, type NoteDraft } from "@/components/hobby/note-editor";
+import {
+  GeneralNoteEditor,
+  HobbyNoteEditor,
+  type NoteDraft,
+} from "@/components/hobby/note-editor";
 import { cn } from "@/lib/utils";
 
 type Tab = "notes" | "hobbies";
@@ -69,37 +71,25 @@ function HobbyCard({
       type="button"
       onClick={onOpen}
       data-hobby-accent={hobbyAccent(hobby.accent)}
-      className="lift group relative flex w-full min-w-0 flex-col items-start gap-2 overflow-hidden rounded-2xl border border-border p-4 text-left"
-      style={{
-        background:
-          "linear-gradient(160deg, hsl(var(--hobby-soft)) 0%, hsl(var(--card)) 78%)",
-      }}
+      className="lift flex w-full min-w-0 flex-col items-start gap-2 rounded-2xl border border-border bg-card p-4 text-left"
     >
-      <span
-        className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full opacity-40 blur-2xl"
-        style={{ backgroundColor: "hsl(var(--hobby) / 0.5)" }}
-        aria-hidden
-      />
-      <span className="grid h-10 w-10 place-items-center rounded-xl border border-border/70 bg-card/80 text-[19px] leading-none shadow-soft">
-        {hobby.icon ? hobby.icon : <BookOpen className="h-4.5 w-4.5 text-muted-foreground" />}
-      </span>
-      <span className="min-w-0 w-full">
-        <span className="block truncate text-[15px] font-semibold tracking-tight text-foreground">
-          {hobby.name}
+      <span className="flex w-full items-center gap-2.5">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border/70 bg-muted/40 text-[17px] leading-none">
+          {hobby.icon ? hobby.icon : <BookOpen className="h-4 w-4 text-muted-foreground" />}
         </span>
-        {hobby.description ? (
-          <span className="mt-0.5 line-clamp-2 block text-[12.5px] leading-relaxed text-muted-foreground">
-            {hobby.description}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-semibold tracking-tight text-foreground">
+            {hobby.name}
           </span>
-        ) : (
-          <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground/80">
+          <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground/80">
+            <HobbyAccentDot hobby={hobby} className="h-1.5 w-1.5" />
             {count === 0 ? "No notes yet" : `${count} note${count === 1 ? "" : "s"}`}
           </span>
-        )}
+        </span>
       </span>
-      {count > 0 && hobby.description && (
-        <span className="font-mono text-[11px] tnum text-muted-foreground/80">
-          {count} note{count === 1 ? "" : "s"}
+      {hobby.description && (
+        <span className="line-clamp-2 block text-[12.5px] leading-relaxed text-muted-foreground">
+          {hobby.description}
         </span>
       )}
     </button>
@@ -107,16 +97,20 @@ function HobbyCard({
 }
 
 function NoteRow({
-  note,
-  hobby,
+  title,
+  excerpt,
+  date,
+  icon,
+  accent,
   onOpen,
 }: {
-  note: Note;
-  hobby?: Hobby;
+  title: string;
+  excerpt: string;
+  date: string;
+  icon: React.ReactNode;
+  accent?: Hobby | null;
   onOpen: () => void;
 }) {
-  const title = deriveNoteTitle(note.title, note.content);
-  const excerpt = noteExcerpt(note.content);
   return (
     <button
       type="button"
@@ -124,34 +118,19 @@ function NoteRow({
       className="flex w-full min-w-0 items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:bg-muted/45 focus-visible:outline-none"
     >
       <span
-        data-hobby-accent={hobbyAccent(hobby?.accent)}
+        data-hobby-accent={accent ? hobbyAccent(accent.accent) : undefined}
         className="mt-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border/70 text-[13px] leading-none"
-        style={{ backgroundColor: "hsl(var(--hobby-soft))" }}
       >
-        {hobby?.icon ? hobby.icon : <NotebookPen className="h-3.5 w-3.5 text-muted-foreground" />}
+        {icon}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-3">
           <span className="min-w-0 truncate text-[14px] font-medium text-foreground">{title}</span>
-          <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground/80">
-            {formatNoteDate(note.updatedAt)}
-          </span>
+          <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground/80">{date}</span>
         </span>
         {excerpt && (
           <span className="mt-0.5 line-clamp-2 block text-[12.5px] leading-relaxed text-muted-foreground">
             {excerpt}
-          </span>
-        )}
-        {hobby && (
-          <span
-            className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium"
-            style={{
-              backgroundColor: "hsl(var(--hobby-soft))",
-              color: "hsl(var(--hobby-ink))",
-            }}
-          >
-            <HobbyAccentDot hobby={hobby} className="h-1.5 w-1.5" />
-            {hobby.name}
           </span>
         )}
       </span>
@@ -159,7 +138,7 @@ function NoteRow({
   );
 }
 
-function EmptyNotes({ onCreate }: { onCreate: () => void }) {
+function EmptyGeneralNotes({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="surface anim-fade-in flex flex-col items-center gap-3 rounded-2xl px-6 py-14 text-center">
       <span className="grid h-14 w-14 place-items-center rounded-2xl border border-border bg-muted/40 text-muted-foreground">
@@ -170,8 +149,8 @@ function EmptyNotes({ onCreate }: { onCreate: () => void }) {
           Capture an idea before it disappears
         </p>
         <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
-          Notes are a private scratchpad. Nothing here becomes a task, and nothing leaves
-          your device.
+          A private scratchpad for anything that isn&apos;t a task. Nothing here belongs to a
+          hobby, and nothing leaves your device.
         </p>
       </div>
       <Button variant="primary" size="md" onClick={onCreate} className="mt-1">
@@ -192,8 +171,8 @@ function EmptyHobbies({ onCreate }: { onCreate: () => void }) {
           Keep the things you enjoy in one place
         </p>
         <p className="mx-auto mt-1 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
-          Hobbies are just interests — no schedules, no streaks, no pressure. Give one a
-          name and start filing notes under it.
+          Hobbies are just interests — no schedules, no streaks, no pressure. Give one a name
+          and start filing notes under it.
         </p>
       </div>
       <Button variant="primary" size="md" onClick={onCreate} className="mt-1">
@@ -221,40 +200,46 @@ function EmptyHobbies({ onCreate }: { onCreate: () => void }) {
 export function HobbyNotesView() {
   const ready = useStore((s) => s.ready);
   const hobbies = useStore((s) => s.hobbies);
-  const notes = useStore((s) => s.notes);
+  const generalNotes = useStore((s) => s.generalNotes);
+  const hobbyNotes = useStore((s) => s.hobbyNotes);
   const addHobby = useStore((s) => s.addHobby);
   const updateHobby = useStore((s) => s.updateHobby);
   const removeHobby = useStore((s) => s.removeHobby);
-  const addNote = useStore((s) => s.addNote);
-  const updateNote = useStore((s) => s.updateNote);
-  const removeNote = useStore((s) => s.removeNote);
+  const addGeneralNote = useStore((s) => s.addGeneralNote);
+  const updateGeneralNote = useStore((s) => s.updateGeneralNote);
+  const removeGeneralNote = useStore((s) => s.removeGeneralNote);
+  const addHobbyNote = useStore((s) => s.addHobbyNote);
+  const updateHobbyNote = useStore((s) => s.updateHobbyNote);
+  const removeHobbyNote = useStore((s) => s.removeHobbyNote);
 
   const [tab, setTab] = useState<Tab>("notes");
   const [query, setQuery] = useState("");
-  const [hobbyFilter, setHobbyFilter] = useState<string | null | undefined>(undefined);
 
   const [editingHobby, setEditingHobby] = useState<Hobby | null>(null);
   const [hobbyEditorOpen, setHobbyEditorOpen] = useState(false);
   const [openHobbyId, setOpenHobbyId] = useState<string | null>(null);
-  const [editingNote, setEditingNote] = useState<Note | null>(null);
-  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
-  const [noteDraftHobby, setNoteDraftHobby] = useState<string | undefined>(undefined);
   const [confirmHobby, setConfirmHobby] = useState<Hobby | null>(null);
 
-  const sortedHobbies = useMemo(() => orderedHobbies(hobbies), [hobbies]);
-  const counts = useMemo(() => noteCountsByHobby(notes), [notes]);
-  const hobbyById = useMemo(() => new Map(hobbies.map((h) => [h.id, h])), [hobbies]);
-  const unfiled = useMemo(() => unfiledNotes(notes), [notes]);
+  const [editingGeneral, setEditingGeneral] = useState<GeneralNote | null>(null);
+  const [generalEditorOpen, setGeneralEditorOpen] = useState(false);
 
-  const visibleNotes = useMemo(
-    () => filterNotes(notes, { query, hobbyId: hobbyFilter }),
-    [notes, query, hobbyFilter],
+  const [editingHobbyNote, setEditingHobbyNote] = useState<HobbyNote | null>(null);
+  const [hobbyNoteEditorOpen, setHobbyNoteEditorOpen] = useState(false);
+
+  const sortedHobbies = useMemo(() => orderedHobbies(hobbies), [hobbies]);
+  const counts = useMemo(() => noteCountsByHobby(hobbyNotes), [hobbyNotes]);
+  const hobbyById = useMemo(() => new Map(hobbies.map((h) => [h.id, h])), [hobbies]);
+
+  // The general feed shows general notes only — never a hobby note.
+  const visibleGeneralNotes = useMemo(
+    () => filterGeneralNotes(generalNotes, query),
+    [generalNotes, query],
   );
 
   const openHobby = openHobbyId ? hobbyById.get(openHobbyId) ?? null : null;
-  const openHobbyNotes = openHobby ? notesForHobby(notes, openHobby.id) : [];
+  const openHobbyNotes = openHobby ? notesForHobby(hobbyNotes, openHobby.id) : [];
 
-  /* ------------------------------ actions ------------------------------ */
+  /* ------------------------------ Hobbies ------------------------------ */
 
   const startNewHobby = () => {
     setEditingHobby(null);
@@ -275,8 +260,7 @@ export function HobbyNotesView() {
         accent: draft.accent,
       });
     } else {
-      const id = addHobby(draft);
-      setOpenHobbyId(id);
+      setOpenHobbyId(addHobby(draft));
     }
     setHobbyEditorOpen(false);
     setEditingHobby(null);
@@ -289,38 +273,56 @@ export function HobbyNotesView() {
     setEditingHobby(null);
   };
 
-  const startNewNote = (hobbyId?: string) => {
-    setEditingNote(null);
-    setNoteDraftHobby(hobbyId);
-    setNoteEditorOpen(true);
+  /* ---------------------------- General notes -------------------------- */
+
+  const startNewGeneralNote = () => {
+    setEditingGeneral(null);
+    setGeneralEditorOpen(true);
   };
 
-  const startEditNote = (note: Note) => {
-    setEditingNote(note);
-    setNoteDraftHobby(undefined);
-    setNoteEditorOpen(true);
+  const startEditGeneralNote = (note: GeneralNote) => {
+    setEditingGeneral(note);
+    setGeneralEditorOpen(true);
   };
 
-  const submitNote = (draft: NoteDraft) => {
-    if (editingNote) {
-      updateNote(editingNote.id, {
-        title: draft.title,
-        content: draft.content,
-        hobbyId: draft.hobbyId,
-      });
+  const submitGeneralNote = (draft: NoteDraft) => {
+    if (editingGeneral) {
+      updateGeneralNote(editingGeneral.id, { title: draft.title, content: draft.content });
     } else {
-      addNote(draft);
+      addGeneralNote({ title: draft.title, content: draft.content });
     }
-    setNoteEditorOpen(false);
-    setEditingNote(null);
+    setGeneralEditorOpen(false);
+    setEditingGeneral(null);
   };
 
-  const activeFilterLabel =
-    hobbyFilter === null
-      ? "Unfiled"
-      : hobbyFilter
-        ? hobbyById.get(hobbyFilter)?.name ?? "Hobby"
-        : "All notes";
+  /* ----------------------------- Hobby notes --------------------------- */
+
+  const startNewHobbyNote = () => {
+    setEditingHobbyNote(null);
+    setHobbyNoteEditorOpen(true);
+  };
+
+  const startEditHobbyNote = (note: HobbyNote) => {
+    setEditingHobbyNote(note);
+    setHobbyNoteEditorOpen(true);
+  };
+
+  const submitHobbyNote = (draft: NoteDraft) => {
+    if (!openHobby) return;
+    if (editingHobbyNote) {
+      updateHobbyNote(editingHobbyNote.id, { title: draft.title, content: draft.content });
+    } else {
+      addHobbyNote({ hobbyId: openHobby.id, title: draft.title, content: draft.content });
+    }
+    setHobbyNoteEditorOpen(false);
+    setEditingHobbyNote(null);
+  };
+
+  const deleteHobbyNote = (note: HobbyNote) => {
+    removeHobbyNote(note.id);
+    setHobbyNoteEditorOpen(false);
+    setEditingHobbyNote(null);
+  };
 
   return (
     <PageFrame wide>
@@ -334,7 +336,7 @@ export function HobbyNotesView() {
             Your quiet corner
           </h1>
           <p className="mt-1 max-w-md text-[13px] leading-relaxed text-muted-foreground">
-            Interests and ideas that aren&apos;t productivity tasks. Kept separate from your
+            Notes for yourself, and notes that live inside your hobbies. Kept separate from your
             daily plan, entirely on this device.
           </p>
         </div>
@@ -350,7 +352,7 @@ export function HobbyNotesView() {
           <Button
             variant="primary"
             size="md"
-            onClick={() => (tab === "notes" ? startNewNote(hobbyFilter ?? undefined) : startNewHobby())}
+            onClick={() => (tab === "notes" ? startNewGeneralNote() : startNewHobby())}
             className="rounded-full"
           >
             <Plus className="h-4 w-4" strokeWidth={1.75} />
@@ -364,97 +366,60 @@ export function HobbyNotesView() {
       ) : tab === "notes" ? (
         /* ------------------------------- Notes ------------------------------ */
         <div className="space-y-4">
-          <div className="flex flex-col gap-3">
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                strokeWidth={2}
-              />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search notes…"
-                aria-label="Search notes"
-                className="h-10 pl-9 pr-9"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  aria-label="Clear search"
-                  className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-                </button>
-              )}
-            </div>
-
-            {(hobbies.length > 0 || unfiled.length > 0) && (
-              <div className="-mx-1 flex flex-wrap items-center gap-1.5 px-1">
-                <FilterChip
-                  active={hobbyFilter === undefined}
-                  onClick={() => setHobbyFilter(undefined)}
-                  label={`All (${notes.length})`}
-                />
-                {sortedHobbies.map((h) => (
-                  <FilterChip
-                    key={h.id}
-                    active={hobbyFilter === h.id}
-                    onClick={() => setHobbyFilter(h.id)}
-                    label={`${h.icon ? `${h.icon} ` : ""}${h.name} (${counts.get(h.id) ?? 0})`}
-                    hobby={h}
-                  />
-                ))}
-                {unfiled.length > 0 && (
-                  <FilterChip
-                    active={hobbyFilter === null}
-                    onClick={() => setHobbyFilter(null)}
-                    label={`Unfiled (${unfiled.length})`}
-                  />
-                )}
-              </div>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              strokeWidth={2}
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search notes…"
+              aria-label="Search notes"
+              className="h-10 pl-9 pr-9"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
             )}
           </div>
 
-          {notes.length === 0 ? (
-            <EmptyNotes onCreate={() => startNewNote()} />
-          ) : visibleNotes.length === 0 ? (
+          {generalNotes.length === 0 ? (
+            <EmptyGeneralNotes onCreate={startNewGeneralNote} />
+          ) : visibleGeneralNotes.length === 0 ? (
             <div className="surface rounded-2xl px-6 py-12 text-center">
               <p className="text-[14px] font-medium text-foreground">
-                No notes match {isSearching(query) ? `“${query}”` : "this filter"}
+                No notes match {isSearching(query) ? `“${query}”` : "this search"}
               </p>
-              <p className="mt-1 text-[12.5px] text-muted-foreground">
-                Try a different search, or clear the filter.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                onClick={() => {
-                  setQuery("");
-                  setHobbyFilter(undefined);
-                }}
-              >
-                Clear filters
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => setQuery("")}>
+                Clear search
               </Button>
             </div>
           ) : (
             <>
               <div className="flex items-baseline justify-between gap-3 px-0.5">
                 <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {activeFilterLabel}
+                  General notes
                 </p>
                 <p className="font-mono text-[10.5px] tnum text-muted-foreground/80">
-                  {visibleNotes.length} note{visibleNotes.length === 1 ? "" : "s"}
+                  {visibleGeneralNotes.length} note{visibleGeneralNotes.length === 1 ? "" : "s"}
                 </p>
               </div>
               <div className="surface stagger divide-y divide-border/60 overflow-hidden rounded-2xl">
-                {visibleNotes.map((note) => (
+                {visibleGeneralNotes.map((note) => (
                   <NoteRow
                     key={note.id}
-                    note={note}
-                    hobby={note.hobbyId ? hobbyById.get(note.hobbyId) : undefined}
-                    onOpen={() => startEditNote(note)}
+                    title={deriveNoteTitle(note.title, note.content)}
+                    excerpt={noteExcerpt(note.content)}
+                    date={formatNoteDate(note.updatedAt)}
+                    icon={<NotebookPen className="h-3.5 w-3.5 text-muted-foreground" />}
+                    onOpen={() => startEditGeneralNote(note)}
                   />
                 ))}
               </div>
@@ -477,29 +442,6 @@ export function HobbyNotesView() {
                 />
               ))}
             </div>
-          )}
-
-          {notes.length > 0 && unfiled.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setTab("notes");
-                setHobbyFilter(null);
-              }}
-              className="surface lift flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left"
-            >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-muted/40 text-muted-foreground">
-                <Layers className="h-4 w-4" strokeWidth={1.75} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[14px] font-medium text-foreground">
-                  Unfiled notes
-                </span>
-                <span className="block text-[12.5px] text-muted-foreground">
-                  {unfiled.length} note{unfiled.length === 1 ? "" : "s"} not yet under a hobby
-                </span>
-              </span>
-            </button>
           )}
         </div>
       )}
@@ -527,7 +469,7 @@ export function HobbyNotesView() {
               <Button variant="soft" size="sm" onClick={() => startEditHobby(openHobby)}>
                 <Pencil className="h-3.5 w-3.5" strokeWidth={2} /> Edit
               </Button>
-              <Button variant="outline" size="sm" onClick={() => startNewNote(openHobby.id)}>
+              <Button variant="outline" size="sm" onClick={startNewHobbyNote}>
                 <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add note
               </Button>
               <Button
@@ -549,16 +491,25 @@ export function HobbyNotesView() {
                   Nothing filed here yet. Add a note to start collecting thoughts.
                 </p>
               ) : (
-                <ListShellLike>
+                <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border bg-card/70">
                   {openHobbyNotes.map((note) => (
                     <NoteRow
                       key={note.id}
-                      note={note}
-                      hobby={openHobby}
-                      onOpen={() => startEditNote(note)}
+                      title={deriveNoteTitle(note.title, note.content)}
+                      excerpt={noteExcerpt(note.content)}
+                      date={formatNoteDate(note.updatedAt)}
+                      accent={openHobby}
+                      icon={
+                        openHobby.icon ? (
+                          openHobby.icon
+                        ) : (
+                          <NotebookPen className="h-3.5 w-3.5 text-muted-foreground" />
+                        )
+                      }
+                      onOpen={() => startEditHobbyNote(note)}
                     />
                   ))}
-                </ListShellLike>
+                </div>
               )}
             </div>
 
@@ -582,38 +533,46 @@ export function HobbyNotesView() {
           setEditingHobby(null);
         }}
         onSubmit={submitHobby}
-        onDelete={
-          editingHobby
-            ? () => setConfirmHobby(editingHobby)
-            : undefined
-        }
+        onDelete={editingHobby ? () => setConfirmHobby(editingHobby) : undefined}
       />
 
-      <NoteEditor
-        open={noteEditorOpen}
-        note={editingNote}
-        hobbies={sortedHobbies}
-        defaultHobbyId={noteDraftHobby}
+      <GeneralNoteEditor
+        open={generalEditorOpen}
+        note={editingGeneral}
         onClose={() => {
-          setNoteEditorOpen(false);
-          setEditingNote(null);
+          setGeneralEditorOpen(false);
+          setEditingGeneral(null);
         }}
-        onSubmit={submitNote}
+        onSubmit={submitGeneralNote}
         onDelete={
-          editingNote
+          editingGeneral
             ? () => {
-                removeNote(editingNote.id);
-                setNoteEditorOpen(false);
-                setEditingNote(null);
+                removeGeneralNote(editingGeneral.id);
+                setGeneralEditorOpen(false);
+                setEditingGeneral(null);
               }
             : undefined
         }
       />
 
+      {openHobby && (
+        <HobbyNoteEditor
+          open={hobbyNoteEditorOpen}
+          hobby={openHobby}
+          note={editingHobbyNote}
+          onClose={() => {
+            setHobbyNoteEditorOpen(false);
+            setEditingHobbyNote(null);
+          }}
+          onSubmit={submitHobbyNote}
+          onDelete={editingHobbyNote ? () => deleteHobbyNote(editingHobbyNote) : undefined}
+        />
+      )}
+
       <ConfirmDialog
         open={!!confirmHobby}
         title={confirmHobby ? `Delete “${confirmHobby.name}”?` : ""}
-        body="Its notes are kept and simply become unfiled — nothing you wrote is deleted."
+        body="Its notes are kept — they move to your general notes, so nothing you wrote is deleted."
         confirmLabel="Delete hobby"
         onConfirm={() => {
           if (confirmHobby) deleteHobby(confirmHobby);
@@ -621,46 +580,5 @@ export function HobbyNotesView() {
         onClose={() => setConfirmHobby(null)}
       />
     </PageFrame>
-  );
-}
-
-/* Small local helpers ------------------------------------------------ */
-
-function FilterChip({
-  active,
-  onClick,
-  label,
-  hobby,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  hobby?: Hobby;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      data-hobby-accent={hobby ? hobbyAccent(hobby.accent) : undefined}
-      className={cn(
-        "press inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition-colors",
-        active
-          ? "border-primary/40 bg-primary/10 text-foreground"
-          : "border-border bg-card/60 text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-      )}
-    >
-      {hobby && <HobbyAccentDot hobby={hobby} className="h-1.5 w-1.5" />}
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
-
-/** Rounded, divided container used inside modals. */
-function ListShellLike({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border bg-card/70">
-      {children}
-    </div>
   );
 }

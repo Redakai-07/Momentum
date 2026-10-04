@@ -12,8 +12,8 @@
  *   done.
  * - **Reminder tasks** are not daily: they get one weekly check-in while
  *   incomplete, and stop for good once completed.
- * - **Occasional tasks** use their due date. Without one they get a gentle
- *   twice-a-month check-in — never an aggressive repeating schedule.
+ * - **Occasional tasks** use their due date. Without a date they get no
+ *   automatic reminder at all — a someday task never becomes a recurring nag.
  * - **Custom sections** own their recurrence: a task is only considered on days
  *   its section is active (`isSectionActiveOnDate`).
  * - **Explicit user reminders** (`task.remindAt`, or a time the user typed on
@@ -44,7 +44,6 @@ export type ReminderType =
   | "overdue"
   | "daily"
   | "weekly"
-  | "monthly"
   | "follow_up";
 
 export const PRIORITY_RANK: Record<ReminderPriority, number> = {
@@ -217,7 +216,7 @@ function occursOnDay(task: Task, day: Date, sections: CustomSection[]): boolean 
   return true;
 }
 
-const SECTION_LEVEL_TYPES: ReminderType[] = ["daily", "weekly", "monthly"];
+const SECTION_LEVEL_TYPES: ReminderType[] = ["daily", "weekly"];
 
 interface TaskDayOutcome {
   type: ReminderType;
@@ -289,9 +288,10 @@ function decideTaskDay(
   }
 
   if (task.section === "occasional") {
-    if (due) return { skip: "not_due" };
-    if (!settings.occasionalDays.includes(day.getDate())) return { skip: "not_checkin_day" };
-    return { type: "monthly", priority: "low", reason: "monthly_checkin", at, explicitTime: time.explicit };
+    // Dated Occasional work is handled by the due/overdue rules above. Undated
+    // work is never given an invented recurring reminder — a someday task must
+    // not quietly become a recurring nag. It waits for a real due date.
+    return { skip: due ? "not_due" : "no_date" };
   }
 
   return { skip: "unsupported_section" };
@@ -395,8 +395,6 @@ function bodyFor(type: ReminderType, title: string, at: Date): string {
         : `Time for ${title}`;
     case "weekly":
       return `Weekly check-in — ${title}`;
-    case "monthly":
-      return `Monthly check-in — ${title}`;
     case "follow_up":
       return `Keep your momentum going — ${title} is still waiting.`;
   }

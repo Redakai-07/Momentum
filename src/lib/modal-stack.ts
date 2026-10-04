@@ -97,53 +97,68 @@ export function useModalStack(id: string, label: string, dismiss: () => void, op
 }
 
 /**
- * Hook installed at the app shell level. Intercepts the Android back button
- * ( Capacitor `backbutton` event) and the browser's history pop, closing the
- * topmost modal when one is open.
+ * The ONE authoritative back-navigation policy.
+ *
+ * Momentum's top-level destinations (Home, Calendar, Hobby & Notes, Profile)
+ * are peer tabs, not a navigation stack. Switching between them must not grow
+ * browser history, so the tab links navigate with `replace` (see app-shell)
+ * and this handler never walks history to move between them.
+ *
+ * Priority, in order:
+ *   1. an open modal / sheet / dialog closes and consumes the press;
+ *   2. otherwise the `appBack` callback decides an in-app move (a child screen
+ *      returns to its parent; a non-Home tab returns to Home) and returns true
+ *      when it handled the press;
+ *   3. otherwise (already Home, nothing open) the press falls through to the
+ *      platform, which minimises/exits the app.
+ *
+ * `appBack` is read through a ref so the latest pathname/router is always used
+ * without re-subscribing the native listener.
  */
-export function useAndroidBackButton(): void {
+export function useAndroidBackButton(appBack: () => boolean): void {
   const mountedRef = useRef(false);
+  const appBackRef = useRef(appBack);
+  useEffect(() => {
+    appBackRef.current = appBack;
+  }, [appBack]);
 
-  // Try to subscribe to Capacitor backbutton if available (Android/iOS).
   useEffect(() => {
     mountedRef.current = true;
     let capBackButton: Promise<{ remove: () => void }> | null = null;
 
     // Capacitor native back button (Android physical back, iOS edge-swipe).
-    // When a listener is attached the WebView's default back action is suppressed,
-    // so we must drive it explicitly: close the topmost modal when one is open,
-    // otherwise delegate to Capacitor (goBack / minimize).
+    // Attaching a listener suppresses the WebView's default back action, so we
+    // must drive everything explicitly.
     if (typeof App !== "undefined" && App.addListener) {
-      capBackButton = App.addListener("backButton", async ({ canGoBack }) => {
+      capBackButton = App.addListener("backButton", async () => {
         if (!mountedRef.current) return;
+        // 1. A modal/sheet/dialog owns the press.
         if (modalStackDepth() > 0) {
           popModal();
           return;
         }
-        // No modal open — navigate browser history, or minimize at the root.
-        if (canGoBack && typeof window !== "undefined") window.history.back();
-        else await App.minimizeApp();
+        // 2. In-app move (child → parent, or tab → Home).
+        if (appBackRef.current()) return;
+        // 3. Root: let Android put the app in the background (exit behaviour).
+        await App.minimizeApp();
       });
     }
 
     // Browser history pop (desktop, PWA, or Capacitor's WebView history).
-    // On desktop/PWA the browser back button fires popstate; when a modal is
-    // open we close it instead of navigating away. We restore a history entry so
-    // the next back press continues to navigate normally.
+    // Only an open overlay is intercepted — otherwise the browser's own history
+    // handling stays in charge, since tabs no longer add history entries.
     const onPopState = () => {
       if (!mountedRef.current) return;
       if (modalStackDepth() > 0) {
         popModal();
         if (typeof window !== "undefined") {
-          // Push the current pathname back so the browser still has a history
-          // entry to pop on the next back press (avoids a trapped modal).
+          // Restore an entry so the next back press is not swallowed.
           try {
             window.history.pushState(null, "", window.location.pathname);
           } catch {
             // pushState can throw in some restricted environments — ignore.
           }
         }
-        return;
       }
     };
 

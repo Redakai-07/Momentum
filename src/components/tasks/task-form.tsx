@@ -14,11 +14,10 @@ import { Field, Input, Textarea } from "@/components/ui/form";
 import { Segmented } from "@/components/ui/segmented";
 import { useStore } from "@/lib/store";
 import { useModalStack } from "@/lib/modal-stack";
-import type { Priority, Task } from "@/lib/types";
+import type { Task } from "@/lib/types";
 import { formatMinutes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
-  REMINDER_PRESETS,
   buildTaskInput,
   canContinue,
   defaultWizardState,
@@ -30,7 +29,6 @@ import {
   summaryLines,
   toLocalInput,
   wizardSteps,
-  type ReminderPreset,
   type SectionKey,
   type WizardState,
   type WizardStep,
@@ -140,9 +138,8 @@ function CreateWizard({
 }) {
   const sections = useStore((s) => s.sections);
   const addTask = useStore((s) => s.addTask);
-  const dailyTime = useStore((s) => s.notificationSettings.dailyReminderTime);
 
-  const [state, setState] = useState(() => defaultWizardState(defaultSection, dailyTime));
+  const [state, setState] = useState(() => defaultWizardState(defaultSection));
   const [index, setIndex] = useState(0);
   const [done, setDone] = useState(false);
 
@@ -349,7 +346,7 @@ function CreateWizard({
             hint={
               state.sectionKey === "remainder"
                 ? "Optional — until it's done, this gets a gentle weekly nudge."
-                : "Optional — until it's done, this gets a gentle monthly nudge."
+                : "Optional — give it a date and Momentum will remind you that day."
             }
           />
           <Field label="Due date" hint="optional" htmlFor="tw-due">
@@ -441,109 +438,11 @@ function CreateWizard({
         </div>
       )}
 
-      {step === "next" && (
-        <div className="space-y-4">
-          <StepHeading
-            title="What is the next small action?"
-            hint="Optional — the tiny first step that makes starting easy."
-          />
-          <Input
-            id="tw-next"
-            autoFocus
-            value={state.nextAction}
-            onChange={(e) => patch({ nextAction: e.target.value })}
-            placeholder="Open LeetCode and solve the first problem."
-            maxLength={160}
-            aria-label="Next action"
-          />
-        </div>
-      )}
-
-      {step === "reminder" && (
-        <div className="space-y-4">
-          <StepHeading
-            title={
-              isRecurringKey(state.sectionKey)
-                ? "Remind me at a time?"
-                : "Want me to remind you?"
-            }
-            hint={
-              isRecurringKey(state.sectionKey)
-                ? "This task lives on its schedule, so Momentum nudges it daily. Pick a time to choose when."
-                : "Optional — off by default. This reminder fires exactly when you set it."
-            }
-          />
-          <Segmented<"off" | "on">
-            className="w-40"
-            options={[
-              { value: "off", label: "No" },
-              { value: "on", label: "Yes" },
-            ]}
-            value={state.reminderOn ? "on" : "off"}
-            onChange={(v) => patch({ reminderOn: v === "on" })}
-          />
-          {state.reminderOn && isRecurringKey(state.sectionKey) && (
-            <Field label="Time" htmlFor="tw-remind-time">
-              <Input
-                id="tw-remind-time"
-                type="time"
-                value={state.reminderTime}
-                onChange={(e) => patch({ reminderTime: e.target.value })}
-                autoFocus
-              />
-            </Field>
-          )}
-          {state.reminderOn && !isRecurringKey(state.sectionKey) && (
-            <div className="space-y-2.5" role="radiogroup" aria-label="Reminder moment">
-              {REMINDER_PRESETS.map((preset) => {
-                const selected = preset.id === state.reminderPreset;
-                return (
-                  <div key={preset.id} className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => patch({ reminderPreset: preset.id as ReminderPreset })}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
-                        selected
-                          ? "border-primary/55 bg-primary/[0.06] text-foreground"
-                          : "border-border bg-card/60 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "h-3 w-3 rounded-full border-2",
-                          selected ? "border-primary bg-primary" : "border-foreground/30",
-                        )}
-                      />
-                      {preset.label}
-                    </button>
-                    {preset.id === "custom" && selected && (
-                      <Input
-                        type="datetime-local"
-                        value={state.reminderCustom}
-                        onChange={(e) => patch({ reminderCustom: e.target.value })}
-                        aria-label="Custom reminder moment"
-                        autoFocus
-                        className="min-w-0 flex-1"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
       {step === "details" && (
         <div className="space-y-4">
           <StepHeading
             title="Anything else?"
-            hint="Optional — notes and priority only if they help."
+            hint="Optional — a note only if it helps."
           />
           <Field label="Description" hint="optional" htmlFor="tw-desc">
             <Textarea
@@ -552,18 +451,6 @@ function CreateWizard({
               onChange={(e) => patch({ description: e.target.value })}
               placeholder="What does this involve? Topics, resources, steps…"
               rows={3}
-            />
-          </Field>
-          <Field label="Priority">
-            <Segmented<Priority>
-              className="w-full"
-              options={[
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Med" },
-                { value: "high", label: "High" },
-              ]}
-              value={state.priority}
-              onChange={(v) => patch({ priority: v })}
             />
           </Field>
         </div>
@@ -589,7 +476,6 @@ interface EditDraft {
   reminderCustom: string;
   reminderTime: string;
   description: string;
-  priority: Priority;
 }
 
 function draftFromTask(task: Task, dailyTime: string): EditDraft {
@@ -612,7 +498,6 @@ function draftFromTask(task: Task, dailyTime: string): EditDraft {
     reminderCustom: oneShot ? toLocalInput(task.remindAt) : "",
     reminderTime: task.notifyTime ?? dailyTime,
     description: task.description ?? "",
-    priority: task.priority ?? "medium",
   };
 }
 
@@ -660,7 +545,7 @@ function EditForm({ task, onClose }: { task: Task; onClose: () => void }) {
           : draft.reminderCustom
             ? formatMoment(draft.reminderCustom)
             : "On"
-        : "Off",
+        : "Automatic",
     },
     { id: "details", label: "Details", sub: draft.description ? "Has notes" : "No notes" },
   ];
@@ -694,7 +579,6 @@ function EditForm({ task, onClose }: { task: Task; onClose: () => void }) {
     if (draft.description.trim() !== before.description.trim()) {
       changes.description = draft.description.trim() || undefined;
     }
-    if (draft.priority !== before.priority) changes.priority = draft.priority;
 
     const nextNotify = draft.reminderOn && recurring ? draft.reminderTime.trim() || undefined : undefined;
     const beforeNotify = before.reminderOn && isRecurringKey(before.sectionKey)
@@ -848,11 +732,19 @@ function EditForm({ task, onClose }: { task: Task; onClose: () => void }) {
 
                   {row.id === "reminder" && (
                     <>
+                      {/* Secondary, opt-in override. Ordinary reminders are
+                          automatic — this only exists for the rare task where
+                          the user wants an exact moment. */}
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {draft.reminderOn
+                          ? "Momentum will use this exact time instead of the automatic reminder."
+                          : "Momentum reminds you automatically based on this task's type and schedule."}
+                      </p>
                       <Segmented<"off" | "on">
-                        className="w-40"
+                        className="w-48"
                         options={[
-                          { value: "off", label: "Off" },
-                          { value: "on", label: "On" },
+                          { value: "off", label: "Automatic" },
+                          { value: "on", label: "Custom" },
                         ]}
                         value={draft.reminderOn ? "on" : "off"}
                         onChange={(v) => patch({ reminderOn: v === "on" })}
@@ -881,28 +773,14 @@ function EditForm({ task, onClose }: { task: Task; onClose: () => void }) {
                   )}
 
                   {row.id === "details" && (
-                    <>
-                      <Field label="Description" hint="optional" htmlFor="te-desc">
-                        <Textarea
-                          id="te-desc"
-                          value={draft.description}
-                          onChange={(e) => patch({ description: e.target.value })}
-                          rows={3}
-                        />
-                      </Field>
-                      <Field label="Priority">
-                        <Segmented<Priority>
-                          className="w-full"
-                          options={[
-                            { value: "low", label: "Low" },
-                            { value: "medium", label: "Med" },
-                            { value: "high", label: "High" },
-                          ]}
-                          value={draft.priority}
-                          onChange={(v) => patch({ priority: v })}
-                        />
-                      </Field>
-                    </>
+                    <Field label="Description" hint="optional" htmlFor="te-desc">
+                      <Textarea
+                        id="te-desc"
+                        value={draft.description}
+                        onChange={(e) => patch({ description: e.target.value })}
+                        rows={3}
+                      />
+                    </Field>
                   )}
                 </div>
               )}

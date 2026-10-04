@@ -12,8 +12,9 @@ import {
 import type {
   CustomSection,
   DailyPerformance,
+  GeneralNote,
   Hobby,
-  Note,
+  HobbyNote,
   Schedule,
   Task,
   TimeLog,
@@ -75,7 +76,7 @@ function hobby(over: Partial<Hobby> = {}): Hobby {
   };
 }
 
-function note(over: Partial<Note> = {}): Note {
+function generalNote(over: Partial<GeneralNote> = {}): GeneralNote {
   return {
     id: "n1",
     title: "Golden hour",
@@ -86,6 +87,10 @@ function note(over: Partial<Note> = {}): Note {
   };
 }
 
+function hobbyNote(over: Partial<HobbyNote> = {}): HobbyNote {
+  return { ...generalNote(), id: "hn1", hobbyId: "h1", ...over };
+}
+
 function source(over: Partial<BackupSource> = {}): BackupSource {
   return {
     tasks: [],
@@ -93,7 +98,8 @@ function source(over: Partial<BackupSource> = {}): BackupSource {
     sections: [],
     performance: [],
     hobbies: [],
-    notes: [],
+    generalNotes: [],
+    hobbyNotes: [],
     meta: [],
     theme: null,
     ...over,
@@ -124,7 +130,8 @@ describe("export", () => {
       sections: 0,
       performance: 0,
       hobbies: 0,
-      notes: 0,
+      generalNotes: 0,
+      hobbyNotes: 0,
     });
     expect(backup.data.tasks).toEqual([]);
     expect(backup.data.settings.meta).toEqual({});
@@ -138,7 +145,8 @@ describe("export", () => {
         sections: [section()],
         performance: [perf()],
         hobbies: [hobby()],
-        notes: [note({ hobbyId: "h1" }), note({ id: "n2", hobbyId: undefined })],
+        generalNotes: [generalNote({ id: "g2" })],
+        hobbyNotes: [hobbyNote({ hobbyId: "h1" })],
         theme: "dark",
       }),
     );
@@ -147,7 +155,8 @@ describe("export", () => {
     expect(backup.data.sections).toHaveLength(1);
     expect(backup.data.performance).toHaveLength(1);
     expect(backup.data.hobbies).toHaveLength(1);
-    expect(backup.data.notes).toHaveLength(2);
+    expect(backup.data.generalNotes).toHaveLength(1);
+    expect(backup.data.hobbyNotes).toHaveLength(1);
     expect(backup.data.settings.theme).toBe("dark");
   });
 
@@ -321,19 +330,20 @@ describe("history preservation", () => {
     expect(recomputed.find((r) => r.date === "2026-08-06")?.kind).toBe("recovery");
   });
 
-  it("13–15. preserves hobbies, filed notes and standalone notes", () => {
+  it("13–15. preserves hobbies, hobby notes and general notes as separate tables", () => {
     const backup = roundTrip(
       source({
         hobbies: [hobby()],
-        notes: [
-          note({ id: "n1", hobbyId: "h1" }),
-          note({ id: "n2", title: "Loose thought", hobbyId: undefined }),
-        ],
+        generalNotes: [generalNote({ id: "n2", title: "Loose thought" })],
+        hobbyNotes: [hobbyNote({ id: "n1", hobbyId: "h1" })],
       }),
     );
     expect(backup.data.hobbies[0]).toMatchObject({ name: "Photography", icon: "📷", accent: "blue" });
-    expect(backup.data.notes.find((n) => n.id === "n1")?.hobbyId).toBe("h1");
-    expect(backup.data.notes.find((n) => n.id === "n2")?.hobbyId).toBeUndefined();
+    expect(backup.data.hobbyNotes.find((n) => n.id === "n1")?.hobbyId).toBe("h1");
+    expect(backup.data.generalNotes.find((n) => n.id === "n2")?.title).toBe("Loose thought");
+    // The two collections never bleed into each other.
+    expect(backup.data.generalNotes).toHaveLength(1);
+    expect(backup.data.hobbyNotes).toHaveLength(1);
   });
 
   it("24–25. leaves historical date keys byte-identical", () => {
@@ -467,18 +477,18 @@ describe("reconstruction after import", () => {
     const restored = roundTrip(
       source({
         hobbies: [hobby(), hobby({ id: "h2", name: "Reading", accent: "sand" })],
-        notes: [
-          note({ id: "n1", hobbyId: "h1" }),
-          note({ id: "n2", hobbyId: "h2", title: "Book list" }),
-          note({ id: "n3", hobbyId: undefined }),
+        generalNotes: [generalNote({ id: "n3", title: "A stray thought" })],
+        hobbyNotes: [
+          hobbyNote({ id: "n1", hobbyId: "h1" }),
+          hobbyNote({ id: "n2", hobbyId: "h2", title: "Book list" }),
         ],
       }),
     );
     const hobbyIds = new Set(restored.data.hobbies.map((h) => h.id));
-    const filed = restored.data.notes.filter((n) => n.hobbyId);
-    expect(filed).toHaveLength(2);
-    for (const n of filed) expect(hobbyIds.has(n.hobbyId!)).toBe(true);
-    expect(restored.data.notes.find((n) => n.id === "n3")?.hobbyId).toBeUndefined();
+    expect(restored.data.hobbyNotes).toHaveLength(2);
+    for (const n of restored.data.hobbyNotes) expect(hobbyIds.has(n.hobbyId)).toBe(true);
+    // The stray thought stays general — it never acquires a hobby.
+    expect(restored.data.generalNotes.map((n) => n.id)).toEqual(["n3"]);
   });
 });
 
@@ -535,9 +545,36 @@ describe("parse and validate", () => {
     expect(parsed.backup.version).toBe(BACKUP_VERSION);
     expect(parsed.backup.data.tasks).toHaveLength(1);
     expect(parsed.backup.data.hobbies).toEqual([]);
-    expect(parsed.backup.data.notes).toEqual([]);
+    expect(parsed.backup.data.generalNotes).toEqual([]);
+    expect(parsed.backup.data.hobbyNotes).toEqual([]);
     expect(parsed.backup.data.settings).toEqual({ meta: {}, theme: null });
     expect(parsed.summary.repairs.join(" ")).toMatch(/unversioned/i);
+  });
+
+  it("20b. splits a legacy single `notes` list into general and hobby notes", () => {
+    // An older export carried one flat `notes` array. Restoring must route each
+    // note by whether it had a hobby, keeping ids and content — no duplication.
+    const legacy = {
+      format: BACKUP_FORMAT,
+      version: 0,
+      data: {
+        hobbies: [hobby({ id: "h1" })],
+        notes: [
+          { id: "n1", title: "Filed", content: "Filed under a hobby", hobbyId: "h1", createdAt: "2026-09-05T10:00:00.000Z", updatedAt: "2026-09-06T10:00:00.000Z" },
+          { id: "n2", title: "Scratch", content: "A loose thought", createdAt: "2026-09-07T10:00:00.000Z", updatedAt: "2026-09-08T10:00:00.000Z" },
+        ],
+      },
+    };
+    const parsed = parseBackup(JSON.stringify(legacy));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.backup.data.hobbyNotes.map((n) => n.id)).toEqual(["n1"]);
+    expect(parsed.backup.data.hobbyNotes[0].hobbyId).toBe("h1");
+    expect(parsed.backup.data.generalNotes.map((n) => n.id)).toEqual(["n2"]);
+    expect(parsed.backup.data.generalNotes[0].content).toBe("A loose thought");
+    // Nothing is duplicated across the two lists.
+    expect(parsed.backup.data.hobbyNotes.length + parsed.backup.data.generalNotes.length).toBe(2);
+    expect(parsed.summary.repairs.join(" ")).toMatch(/separated general notes/i);
   });
 
   it("rejects a structurally damaged backup instead of importing part of it", () => {
@@ -547,11 +584,11 @@ describe("parse and validate", () => {
       data: {
         tasks: [task(), { title: "no id here" }],
         logs: [log()],
-        sections: [],
-        performance: [],
-        hobbies: [],
-        notes: [],
-        settings: { meta: {}, theme: null },
+        sections: [],          performance: [],
+          hobbies: [],
+          generalNotes: [],
+          hobbyNotes: [],
+          settings: { meta: {}, theme: null },
       },
     };
     const parsed = parseBackup(JSON.stringify(damaged));
@@ -606,7 +643,8 @@ describe("relational repair", () => {
           sections: [section({ name: "A" }), section({ name: "B" })],
           performance: [perf({ percentage: 10 }), perf({ percentage: 90 })],
           hobbies: [hobby({ name: "A" }), hobby({ name: "B" })],
-          notes: [note({ title: "A" }), note({ title: "B" })],
+          generalNotes: [generalNote({ title: "A" }), generalNote({ title: "B" })],
+          hobbyNotes: [hobbyNote({ title: "A" }), hobbyNote({ title: "B" })],
           settings: { meta: {}, theme: null },
         },
       }),
@@ -619,7 +657,8 @@ describe("relational repair", () => {
     expect(d.sections).toHaveLength(1);
     expect(d.performance).toHaveLength(1);
     expect(d.hobbies).toHaveLength(1);
-    expect(d.notes).toHaveLength(1);
+    expect(d.generalNotes).toHaveLength(1);
+    expect(d.hobbyNotes).toHaveLength(1);
     // Last one wins — the later row is the more recent state.
     expect(d.tasks[0].title).toBe("Second");
     expect(d.performance[0].percentage).toBe(90);
@@ -644,22 +683,24 @@ describe("relational repair", () => {
     expect(parsed.summary.repairs.join(" ")).toMatch(/task no longer exists/i);
   });
 
-  it("23b. unfiles notes whose hobby is missing rather than deleting the note", () => {
+  it("23b. moves a hobby note whose hobby is missing to General Notes rather than deleting it", () => {
     const parsed = parseBackup(
       JSON.stringify({
         format: BACKUP_FORMAT,
         version: BACKUP_VERSION,
         data: {
-          notes: [note({ id: "n1", hobbyId: "missing" })],
+          hobbyNotes: [hobbyNote({ id: "n1", hobbyId: "missing" })],
+          generalNotes: [],
           settings: { meta: {}, theme: null },
         },
       }),
     );
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.backup.data.notes).toHaveLength(1);
-    expect(parsed.backup.data.notes[0].hobbyId).toBeUndefined();
-    expect(parsed.summary.repairs.join(" ")).toMatch(/unfiled/i);
+    expect(parsed.backup.data.hobbyNotes).toHaveLength(0);
+    expect(parsed.backup.data.generalNotes).toHaveLength(1);
+    expect(parsed.backup.data.generalNotes[0].id).toBe("n1");
+    expect(parsed.summary.repairs.join(" ")).toMatch(/missing hobby/i);
   });
 
   it("23c. returns custom tasks with an unresolvable section to Reminder", () => {
@@ -697,7 +738,8 @@ describe("relational repair", () => {
             logs: [log({ taskId: "t1" })],
             sections: [section({ id: "s1" })],
             hobbies: [hobby()],
-            notes: [note({ hobbyId: "h1" }), note({ id: "n2" })],
+            generalNotes: [generalNote({ id: "n2" })],
+            hobbyNotes: [hobbyNote({ hobbyId: "h1" })],
           }),
         ),
       ),

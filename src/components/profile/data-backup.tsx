@@ -79,7 +79,8 @@ function CountGrid({ summary }: { summary: BackupSummary }) {
     ["Sections", summary.counts.sections],
     ["Days of history", summary.counts.performance],
     ["Hobbies", summary.counts.hobbies],
-    ["Notes", summary.counts.notes],
+    ["Notes", summary.counts.generalNotes],
+    ["Hobby notes", summary.counts.hobbyNotes],
   ];
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-border bg-muted/25 px-3.5 py-3">
@@ -117,7 +118,8 @@ export function DataBackupSection() {
   // Live counts, so "Export" is never a blind action.
   const taskCount = useStore((s) => s.tasks.length);
   const logCount = useStore((s) => s.logs.length);
-  const noteCount = useStore((s) => s.notes.length);
+  const noteCount = useStore((s) => s.generalNotes.length);
+  const hobbyNoteCount = useStore((s) => s.hobbyNotes.length);
   const hobbyCount = useStore((s) => s.hobbies.length);
   const sectionCount = useStore((s) => s.sections.length);
 
@@ -131,7 +133,8 @@ export function DataBackupSection() {
   } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const totalRecords = taskCount + logCount + noteCount + hobbyCount + sectionCount;
+  const totalRecords =
+    taskCount + logCount + noteCount + hobbyNoteCount + hobbyCount + sectionCount;
 
   const onExport = async () => {
     setBusy("export");
@@ -247,7 +250,7 @@ export function DataBackupSection() {
           {ready && totalRecords > 0 ? (
             <>
               {taskCount} tasks · {logCount} time logs · {sectionCount} sections · {hobbyCount}{" "}
-              hobbies · {noteCount} notes
+              hobbies · {noteCount} notes · {hobbyNoteCount} hobby notes
             </>
           ) : (
             "Nothing saved yet"
@@ -280,7 +283,7 @@ export function DataBackupSection() {
         </div>
 
         <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground/80">
-          Export saves tasks, time logs, performance history, streaks, sections, hobbies, notes
+          Export saves tasks, time logs, performance history, streaks, sections, hobbies, and notes
           and settings. Import replaces everything currently in Momentum — a safety copy of your
           current data is saved first.
         </p>

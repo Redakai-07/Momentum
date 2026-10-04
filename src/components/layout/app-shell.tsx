@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Flame } from "lucide-react";
 import logo from "@/app/momentum.png";
 import { NAV_ITEMS, LIST_LINKS } from "@/lib/nav";
@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
 import { liveDayRec, pickDayRec, currentStreak } from "@/lib/performance";
 import { dateKey } from "@/lib/date";
 import { ThemeProvider } from "@/components/theme/theme-provider";
-import { useAndroidBackButton } from "@/lib/modal-stack";
+import { useAndroidBackButton, modalStackDepth } from "@/lib/modal-stack";
+import { HOME_PATH, resolveBackAction } from "@/lib/back-policy";
 import { onAppResume } from "@/lib/lifecycle";
 import { FocusBanner } from "@/components/layout/focus-banner";
 import { FocusScreen } from "@/components/focus/focus-screen";
@@ -33,10 +34,24 @@ function ShellInner({ children }: { children: ReactNode }) {
   const syncNative = useStore((s) => s.syncNativeNotifications);
   const markInteraction = useStore((s) => s.markInteraction);
   const rolloverIfNewDay = useStore((s) => s.rolloverIfNewDay);
+  const pathname = usePathname();
+  const router = useRouter();
+
+  // The in-app half of the back policy (the modal half lives in the hook).
+  // `resolveBackAction` is the single source of truth for the rule; top-level
+  // tabs are peers joined with `replace`, so history never holds a tab stack.
+  const handleBack = useCallback(() => {
+    const action = resolveBackAction(modalStackDepth(), pathname);
+    if (action === "replace_home") {
+      router.replace(HOME_PATH);
+      return true;
+    }
+    return false;
+  }, [pathname, router]);
 
   // Intercept Android/iOS back button and browser history pop so that
   // modals (Create Task, Task Detail) close first instead of exiting the app.
-  useAndroidBackButton();
+  useAndroidBackButton(handleBack);
 
   useEffect(() => {
     boot();
@@ -111,6 +126,7 @@ function StreakMini() {
   return (
     <Link
       href="/profile"
+      replace
       className="flex items-center gap-2.5 px-2.5 py-2 transition-colors hover:text-foreground"
     >
       <Flame className="h-4 w-4 shrink-0 text-signal" fill="currentColor" strokeWidth={0} />
@@ -154,6 +170,7 @@ function DesktopSidebar() {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  replace
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "group flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] transition-colors",
@@ -187,6 +204,7 @@ function DesktopSidebar() {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  replace
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "group flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] transition-colors",
@@ -232,6 +250,7 @@ function MobileNav() {
             <Link
               key={item.href}
               href={item.href}
+              replace
               aria-current={active ? "page" : undefined}
               className={cn(
                 "group flex min-h-[50px] flex-col items-center justify-center gap-1 rounded-lg py-1 transition-colors duration-150",

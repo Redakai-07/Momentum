@@ -7,9 +7,6 @@ import {
   durationMinutes,
   durationSummary,
   isRecurringKey,
-  reminderAtFor,
-  reminderNotifyTime,
-  reminderSummary,
   scheduleContextFor,
   sectionOptions,
   summaryLines,
@@ -24,11 +21,10 @@ import {
  *
  * - the wizard asks only what the chosen type cannot answer for itself,
  * - optional means optional (skip → omitted, never empty),
- * - recurring and one-shot reminders are mutually exclusive,
+ * - creation never asks about reminders, priority or next action — those are
+ *   not the user's decisions to make while capturing a task,
  * - Back never loses data (state is immutable across step computation).
  */
-
-const NOW = new Date(2026, 8, 14, 10, 0); // Monday 2026-09-14, local
 
 const SECTIONS: CustomSection[] = [
   {
@@ -52,26 +48,31 @@ describe("wizardSteps", () => {
   it("never asks Daily tasks when they repeat — the answer is known", () => {
     const steps = wizardSteps(state({ sectionKey: "daily" }));
     expect(steps).not.toContain("when");
-    expect(steps).toHaveLength(6);
+    expect(steps).toEqual(["what", "where", "time", "details"]);
   });
 
   it("never asks for a custom section's schedule — the section owns it", () => {
     const steps = wizardSteps(state({ sectionKey: "custom:sec-research" }));
     expect(steps).not.toContain("when");
-    expect(steps).toEqual([
-      "what",
-      "where",
-      "time",
-      "next",
-      "reminder",
-      "details",
-    ]);
+    expect(steps).toEqual(["what", "where", "time", "details"]);
   });
 
   it("asks one-off work for a date, because nothing else defines one", () => {
     expect(wizardSteps(state({ sectionKey: "remainder" }))).toContain("when");
     expect(wizardSteps(state({ sectionKey: "occasional" }))).toContain("when");
-    expect(wizardSteps(state({ sectionKey: "remainder" }))).toHaveLength(7);
+    expect(wizardSteps(state({ sectionKey: "remainder" }))).toEqual([
+      "what",
+      "where",
+      "when",
+      "time",
+      "details",
+    ]);
+  });
+
+  it("never asks about reminders, priority or next action", () => {
+    const steps = wizardSteps(state({ sectionKey: "remainder" }));
+    expect(steps).not.toContain("reminder");
+    expect(steps).not.toContain("next");
   });
 
   it("keeps the same state object while steps change (Back never loses data)", () => {
@@ -128,78 +129,16 @@ describe("duration", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Reminders                                                           */
+/* No configuration during creation                                    */
 /* ------------------------------------------------------------------ */
 
-describe("reminders", () => {
-  it("creates no reminder when the user skipped the step", () => {
-    const input = buildTaskInput(state(), NOW);
+describe("creation configures nothing the planner should decide", () => {
+  it("sets no reminder, no priority and no next action", () => {
+    const input = buildTaskInput(state({ title: "Practice Binary Search", mins: "30" }));
     expect(input.notifyTime).toBeUndefined();
     expect(input.remindAt).toBeUndefined();
-  });
-
-  it("gives recurring work a time, and never a one-shot moment", () => {
-    const input = buildTaskInput(
-      state({ reminderOn: true, reminderTime: "19:30" }),
-      NOW,
-    );
-    expect(input.notifyTime).toBe("19:30");
-    expect(input.remindAt).toBeUndefined(); // no duplicate channel
-    expect(reminderNotifyTime(state({ reminderOn: true }))).toBe("09:00");
-  });
-
-  it("gives one-off work a moment, and never a recurring time", () => {
-    const input = buildTaskInput(
-      state({ sectionKey: "remainder", reminderOn: true, reminderPreset: "today7" }),
-      NOW,
-    );
-    expect(input.remindAt).toBe(new Date(2026, 8, 14, 19, 0).toISOString());
-    expect(input.notifyTime).toBeUndefined();
-    expect(input.remindAt).toBeDefined();
-  });
-
-  it("offers today 7 PM / tomorrow 9 AM / custom presets", () => {
-    expect(reminderAtFor(state({ sectionKey: "occasional", reminderOn: true, reminderPreset: "today7" }), NOW)).toBe(
-      new Date(2026, 8, 14, 19, 0).toISOString(),
-    );
-    expect(
-      reminderAtFor(
-        state({ sectionKey: "occasional", reminderOn: true, reminderPreset: "tomorrow9" }),
-        NOW,
-      ),
-    ).toBe(new Date(2026, 8, 15, 9, 0).toISOString());
-
-    const custom = state({
-      sectionKey: "occasional",
-      reminderOn: true,
-      reminderPreset: "custom",
-      reminderCustom: "2026-09-20T14:30",
-    });
-    expect(reminderAtFor(custom, NOW)).toBe(new Date(2026, 8, 20, 14, 30).toISOString());
-  });
-
-  it("blocks continuing when a custom reminder has no valid moment", () => {
-    const broken = state({
-      sectionKey: "remainder",
-      reminderOn: true,
-      reminderPreset: "custom",
-      reminderCustom: "",
-    });
-    expect(canContinue(broken, "reminder")).toBe(false);
-    expect(canContinue(state({ sectionKey: "remainder", reminderOn: true }), "reminder")).toBe(
-      true,
-    );
-  });
-
-  it("summarises the reminder in plain language", () => {
-    expect(reminderSummary(state())).toBe("None");
-    expect(reminderSummary(state({ reminderOn: true }))).toBe("Every day at 09:00");
-    expect(
-      reminderSummary(
-        state({ sectionKey: "remainder", reminderOn: true, reminderPreset: "today7" }),
-        NOW,
-      ),
-    ).toBe("Today at 7:00 PM");
+    expect(input.priority).toBeUndefined();
+    expect(input.nextAction).toBeUndefined();
   });
 });
 
@@ -211,13 +150,11 @@ describe("buildTaskInput — every creation case", () => {
   it("Daily task", () => {
     const input = buildTaskInput(
       state({ title: "Practice Binary Search", hours: "0", mins: "30" }),
-      NOW,
     );
     expect(input).toMatchObject({
       title: "Practice Binary Search",
       section: "daily",
       estimatedMinutes: 30,
-      priority: "medium",
     });
     expect(input.customSectionId).toBeUndefined();
   });
@@ -225,7 +162,6 @@ describe("buildTaskInput — every creation case", () => {
   it("Reminder task", () => {
     const input = buildTaskInput(
       state({ sectionKey: "remainder", title: "Call grandma", dueDate: "2026-09-16" }),
-      NOW,
     );
     expect(input.section).toBe("remainder");
     expect(input.dueDate).toBe("2026-09-16");
@@ -233,10 +169,7 @@ describe("buildTaskInput — every creation case", () => {
   });
 
   it("Occasional task", () => {
-    const input = buildTaskInput(
-      state({ sectionKey: "occasional", title: "Plan trip" }),
-      NOW,
-    );
+    const input = buildTaskInput(state({ sectionKey: "occasional", title: "Plan trip" }));
     expect(input.section).toBe("occasional");
     expect(input.dueDate).toBeUndefined();
   });
@@ -244,41 +177,28 @@ describe("buildTaskInput — every creation case", () => {
   it("Custom section task", () => {
     const input = buildTaskInput(
       state({ sectionKey: "custom:sec-research", title: "Read paper" }),
-      NOW,
     );
     expect(input.section).toBe("custom");
     expect(input.customSectionId).toBe("sec-research");
   });
 
   it("Durationless task", () => {
-    expect(buildTaskInput(state({ title: "Meditate" }), NOW).estimatedMinutes).toBeNull();
+    expect(buildTaskInput(state({ title: "Meditate" })).estimatedMinutes).toBeNull();
   });
 
   it("Timed task", () => {
     expect(
-      buildTaskInput(state({ title: "Workout", hours: "1", mins: "30" }), NOW)
-        .estimatedMinutes,
+      buildTaskInput(state({ title: "Workout", hours: "1", mins: "30" })).estimatedMinutes,
     ).toBe(90);
   });
 
   it("Task with description", () => {
-    const input = buildTaskInput(
-      state({ title: "Read", description: "  Chapters 1–3  " }),
-      NOW,
-    );
+    const input = buildTaskInput(state({ title: "Read", description: "  Chapters 1–3  " }));
     expect(input.description).toBe("Chapters 1–3");
   });
 
-  it("Task with Next Action — preserved verbatim", () => {
-    const input = buildTaskInput(
-      state({ title: "DSA", nextAction: "Open LeetCode and solve the first problem." }),
-      NOW,
-    );
-    expect(input.nextAction).toBe("Open LeetCode and solve the first problem.");
-  });
-
   it("Task with skipped optional fields — omitted, not empty", () => {
-    const input = buildTaskInput(state({ title: "Just a title" }), NOW);
+    const input = buildTaskInput(state({ title: "Just a title" }));
     expect(input.description).toBeUndefined();
     expect(input.nextAction).toBeUndefined();
     expect(input.dueDate).toBeUndefined();
@@ -313,22 +233,23 @@ describe("guard rails", () => {
     expect(toLocalInput("not-a-date")).toBe("");
   });
 
-  it("builds a compact review instead of repeating the whole form", () => {
+  it("builds a compact review with no reminder, priority or next action", () => {
     const lines = summaryLines(
       state({
         title: "Practice Binary Search",
         hours: "0",
         mins: "30",
-        nextAction: "Solve problem 1",
+        description: "Chapter 3",
       }),
       SECTIONS,
-      NOW,
     );
     expect(lines.map((l) => `${l.label}: ${l.value}`)).toEqual([
       "Section: Daily",
       "Time: 30m",
-      "Next action: Solve problem 1",
-      "Reminder: None",
+      "Notes: Chapter 3",
     ]);
+    expect(lines.map((l) => l.label)).not.toContain("Reminder");
+    expect(lines.map((l) => l.label)).not.toContain("Priority");
+    expect(lines.map((l) => l.label)).not.toContain("Next action");
   });
 });

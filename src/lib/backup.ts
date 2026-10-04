@@ -2,10 +2,11 @@ import type {
   CustomSection,
   DailyPerformance,
   DayKind,
+  GeneralNote,
   Hobby,
   HobbyAccent,
+  HobbyNote,
   MonthOccurrence,
-  Note,
   Priority,
   Schedule,
   ScheduleType,
@@ -35,8 +36,13 @@ import type {
  * - `performance` the per-day snapshot — needed because planned minutes for a
  *                 since-deleted task cannot be recomputed from the tasks that
  *                 remain, so the snapshot is genuinely irreplaceable history
- * - `hobbies`, `notes`
+ * - `hobbies`, `generalNotes`, `hobbyNotes`
  * - `settings`    the user's preferences
+ *
+ * Note history: backups written before the note split carried a single `notes`
+ * array. That shape is still read (see {@link migrateData}), so an old backup
+ * restores correctly — each legacy note is routed to `generalNotes` or
+ * `hobbyNotes` by whether it had a hobby.
  *
  * ### Deliberately excluded (and why)
  * - `notifications`              a runtime queue, rebuilt by the planner
@@ -92,7 +98,8 @@ export interface BackupCounts {
   sections: number;
   performance: number;
   hobbies: number;
-  notes: number;
+  generalNotes: number;
+  hobbyNotes: number;
 }
 
 export interface BackupSettings {
@@ -108,7 +115,10 @@ export interface BackupData {
   sections: CustomSection[];
   performance: DailyPerformance[];
   hobbies: Hobby[];
-  notes: Note[];
+  /** Standalone scratchpad notes — never attached to a hobby. */
+  generalNotes: GeneralNote[];
+  /** Notes owned by exactly one hobby. */
+  hobbyNotes: HobbyNote[];
   settings: BackupSettings;
 }
 
@@ -145,7 +155,8 @@ export interface BackupSource {
   sections: CustomSection[];
   performance: DailyPerformance[];
   hobbies: Hobby[];
-  notes: Note[];
+  generalNotes: GeneralNote[];
+  hobbyNotes: HobbyNote[];
   meta: { key: string; value: unknown }[];
   theme: string | null;
 }
@@ -174,7 +185,8 @@ export function buildBackup(
       sections: source.sections.length,
       performance: source.performance.length,
       hobbies: source.hobbies.length,
-      notes: source.notes.length,
+      generalNotes: source.generalNotes.length,
+      hobbyNotes: source.hobbyNotes.length,
     },
     data: {
       tasks: source.tasks,
@@ -182,7 +194,8 @@ export function buildBackup(
       sections: source.sections,
       performance: source.performance,
       hobbies: source.hobbies,
-      notes: source.notes,
+      generalNotes: source.generalNotes,
+      hobbyNotes: source.hobbyNotes,
       settings: { meta, theme: source.theme },
     },
   };
@@ -216,7 +229,8 @@ export function summarizeBackup(backup: MomentumBackup, bytes = 0): BackupSummar
       sections: d.sections.length,
       performance: d.performance.length,
       hobbies: d.hobbies.length,
-      notes: d.notes.length,
+      generalNotes: d.generalNotes.length,
+      hobbyNotes: d.hobbyNotes.length,
     },
     repairs: [],
     bytes,
@@ -501,7 +515,7 @@ function normalizeHobby(raw: unknown, index: number): RowResult<Hobby> {
   };
 }
 
-function normalizeNote(raw: unknown, index: number): RowResult<Note> {
+function normalizeGeneralNote(raw: unknown, index: number): RowResult<GeneralNote> {
   const where = `note #${index + 1}`;
   if (!isObj(raw)) return { ok: false, error: `${where} is not an object` };
   if (!isNonEmptyStr(raw.id)) return { ok: false, error: `${where} has no id` };
@@ -512,7 +526,29 @@ function normalizeNote(raw: unknown, index: number): RowResult<Note> {
     ok: true,
     row: {
       id: raw.id,
-      hobbyId: isNonEmptyStr(raw.hobbyId) ? raw.hobbyId : undefined,
+      title: isStr(raw.title) ? raw.title : "",
+      content: isStr(raw.content) ? raw.content : "",
+      createdAt: isStr(raw.createdAt) && raw.createdAt.length > 0 ? raw.createdAt : now,
+      updatedAt: isStr(raw.updatedAt) && raw.updatedAt.length > 0 ? raw.updatedAt : now,
+    },
+  };
+}
+
+function normalizeHobbyNote(raw: unknown, index: number): RowResult<HobbyNote> {
+  const where = `hobby note #${index + 1}`;
+  if (!isObj(raw)) return { ok: false, error: `${where} is not an object` };
+  if (!isNonEmptyStr(raw.id)) return { ok: false, error: `${where} has no id` };
+  // A hobby note with no hobby is meaningless; it belongs in General Notes.
+  // Reject here and let the migration route it, rather than storing an ownerless row.
+  if (!isNonEmptyStr(raw.hobbyId)) return { ok: false, error: `${where} has no hobby` };
+  if (raw.title !== undefined && !isStr(raw.title)) return { ok: false, error: `${where} has an invalid title` };
+  if (raw.content !== undefined && !isStr(raw.content)) return { ok: false, error: `${where} has invalid content` };
+  const now = new Date().toISOString();
+  return {
+    ok: true,
+    row: {
+      id: raw.id,
+      hobbyId: raw.hobbyId,
       title: isStr(raw.title) ? raw.title : "",
       content: isStr(raw.content) ? raw.content : "",
       createdAt: isStr(raw.createdAt) && raw.createdAt.length > 0 ? raw.createdAt : now,
@@ -570,6 +606,22 @@ export function migrateBackup(
       settings: isObj(data.settings) ? data.settings : { meta: {}, theme: null },
     };
     repairs.push("Upgraded an older, unversioned Momentum backup");
+  }
+
+  // Note split (any version before the current one): a single `notes` array is
+  // routed into `generalNotes` and `hobbyNotes`. This is a reshape only — every
+  // row keeps its id, title, content and timestamps, so no note is lost, and a
+  // hobby note stays with its hobby instead of leaking into the scratchpad.
+  if (!Array.isArray(data.generalNotes) && !Array.isArray(data.hobbyNotes)) {
+    const legacy = Array.isArray(data.notes) ? data.notes : [];
+    const generalNotes: unknown[] = [];
+    const hobbyNotes: unknown[] = [];
+    for (const raw of legacy) {
+      if (isObj(raw) && isNonEmptyStr(raw.hobbyId)) hobbyNotes.push(raw);
+      else generalNotes.push(raw);
+    }
+    data = { ...data, generalNotes, hobbyNotes };
+    if (legacy.length > 0) repairs.push("Separated general notes from hobby notes");
   }
 
   return { data, repairs };
@@ -637,8 +689,10 @@ export function parseBackup(text: string): ParseResult {
   if (!perfRes.ok) return { ok: false, error: perfRes.error };
   const hobbiesRes = normalizeTable(data.hobbies, "hobby", normalizeHobby);
   if (!hobbiesRes.ok) return { ok: false, error: hobbiesRes.error };
-  const notesRes = normalizeTable(data.notes, "note", normalizeNote);
-  if (!notesRes.ok) return { ok: false, error: notesRes.error };
+  const generalNotesRes = normalizeTable(data.generalNotes, "note", normalizeGeneralNote);
+  if (!generalNotesRes.ok) return { ok: false, error: generalNotesRes.error };
+  const hobbyNotesRes = normalizeTable(data.hobbyNotes, "hobby note", normalizeHobbyNote);
+  if (!hobbyNotesRes.ok) return { ok: false, error: hobbyNotesRes.error };
 
   // Duplicate primary keys would make the write fail outright; dedupe instead.
   const tasks = dedupeBy(tasksRes.rows, (t) => t.id);
@@ -651,8 +705,10 @@ export function parseBackup(text: string): ParseResult {
   if (performance.removed > 0) repairs.add("Merged duplicate performance rows");
   const hobbies = dedupeBy(hobbiesRes.rows, (h) => h.id);
   if (hobbies.removed > 0) repairs.add("Merged duplicate hobbies");
-  const notes = dedupeBy(notesRes.rows, (n) => n.id);
-  if (notes.removed > 0) repairs.add("Merged duplicate notes");
+  const generalNotes = dedupeBy(generalNotesRes.rows, (n) => n.id);
+  if (generalNotes.removed > 0) repairs.add("Merged duplicate notes");
+  const hobbyNotes = dedupeBy(hobbyNotesRes.rows, (n) => n.id);
+  if (hobbyNotes.removed > 0) repairs.add("Merged duplicate hobby notes");
 
   /* ---------------------------- relations ---------------------------- */
 
@@ -678,12 +734,24 @@ export function parseBackup(text: string): ParseResult {
     return false;
   });
 
-  // Notes outlive hobbies by design — unfiling keeps every note reachable.
-  const filedNotes = notes.rows.map((n) => {
-    if (!n.hobbyId || hobbyIds.has(n.hobbyId)) return n;
-    repairs.add("Unfiled notes whose hobby was missing");
-    return { ...n, hobbyId: undefined };
+  // A hobby note must keep its hobby. If that hobby is gone, the note is not
+  // deleted — it moves to General Notes, so its content stays reachable while
+  // the "hobby notes live inside a hobby" invariant holds.
+  const adoptedNotes: GeneralNote[] = [];
+  const filedHobbyNotes = hobbyNotes.rows.filter((n) => {
+    if (hobbyIds.has(n.hobbyId)) return true;
+    repairs.add("Moved notes from a missing hobby to General Notes");
+    adoptedNotes.push({
+      id: n.id,
+      title: n.title,
+      content: n.content,
+      createdAt: n.createdAt,
+      updatedAt: n.updatedAt,
+    });
+    return false;
   });
+  const mergedGeneralNotes = dedupeBy([...generalNotes.rows, ...adoptedNotes], (n) => n.id);
+  if (mergedGeneralNotes.removed > 0) repairs.add("Merged duplicate notes");
 
   /* ---------------------------- settings ----------------------------- */
 
@@ -711,7 +779,8 @@ export function parseBackup(text: string): ParseResult {
       sections: sections.rows,
       performance: performance.rows,
       hobbies: hobbies.rows,
-      notes: filedNotes,
+      generalNotes: mergedGeneralNotes.rows,
+      hobbyNotes: filedHobbyNotes,
       settings: { meta, theme },
     },
   };

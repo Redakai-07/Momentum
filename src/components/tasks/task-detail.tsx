@@ -80,8 +80,6 @@ function MetaLine({ task }: { task: Task }) {
           no duration
         </Chip>
       )}
-      {task.priority === "high" && <Chip tone="signal">high priority</Chip>}
-      {task.priority === "low" && <Chip tone="neutral">low priority</Chip>}
       {task.dueDate && d && (
         <Chip
           tone={

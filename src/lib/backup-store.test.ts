@@ -30,7 +30,15 @@ vi.mock("./backup-io", () => ({
 import { parseBackup, BACKUP_FORMAT, BACKUP_VERSION, type MomentumBackup } from "./backup";
 import { addDays, dateKey, todayKey } from "./date";
 import { currentStreak } from "./performance";
-import type { CustomSection, DailyPerformance, Hobby, Note, Task, TimeLog } from "./types";
+import type {
+  CustomSection,
+  DailyPerformance,
+  GeneralNote,
+  Hobby,
+  HobbyNote,
+  Task,
+  TimeLog,
+} from "./types";
 
 /* ------------------------------------------------------------------ */
 /* Harness                                                             */
@@ -121,7 +129,7 @@ const photoHobby: Hobby = {
   updatedAt: "2026-08-06T10:00:00.000Z",
 };
 
-const filedNote: Note = {
+const filedNote: HobbyNote = {
   id: "n-filed",
   hobbyId: "h-photo",
   title: "Golden hour",
@@ -130,7 +138,7 @@ const filedNote: Note = {
   updatedAt: "2026-08-06T10:00:00.000Z",
 };
 
-const looseNote: Note = {
+const looseNote: GeneralNote = {
   id: "n-loose",
   title: "Loose thought",
   content: "No hobby attached.",
@@ -163,7 +171,8 @@ async function seedWorkspace(db: Db): Promise<void> {
   await db.logs.bulkPut(qualifyingLogs());
   await db.performance.bulkPut(qualifyingPerformance());
   await db.hobbies.bulkPut([photoHobby]);
-  await db.notes.bulkPut([filedNote, looseNote]);
+  await db.hobbyNotes.bulkPut([filedNote]);
+  await db.generalNotes.bulkPut([looseNote]);
   await db.meta.bulkPut([
     { key: "profileName", value: "Aditi" },
     { key: "accentColor", value: "purple" },
@@ -220,7 +229,8 @@ describe("exportBackup", () => {
       "t-paper",
     ]);
     expect(parsed.backup.data.sections[0].schedule).toEqual({ type: "weekly", days: [1, 3, 5] });
-    expect(parsed.backup.data.notes).toHaveLength(2);
+    expect(parsed.backup.data.generalNotes).toHaveLength(1);
+    expect(parsed.backup.data.hobbyNotes).toHaveLength(1);
     expect(parsed.backup.data.performance.length).toBeGreaterThanOrEqual(3);
     expect(parsed.backup.data.settings.meta.profileName).toBe("Aditi");
     expect(parsed.backup.data.settings.meta.accentColor).toBe("purple");
@@ -265,7 +275,8 @@ describe("importBackup", () => {
       sections: await db.sections.count(),
       performance: await db.performance.count(),
       hobbies: await db.hobbies.count(),
-      notes: await db.notes.count(),
+      generalNotes: await db.generalNotes.count(),
+      hobbyNotes: await db.hobbyNotes.count(),
     };
 
     // Simulate a fresh installation: the local database is gone.
@@ -279,7 +290,8 @@ describe("importBackup", () => {
     expect(await db.logs.count()).toBe(expected.logs);
     expect(await db.sections.count()).toBe(expected.sections);
     expect(await db.hobbies.count()).toBe(expected.hobbies);
-    expect(await db.notes.count()).toBe(expected.notes);
+    expect(await db.generalNotes.count()).toBe(expected.generalNotes);
+    expect(await db.hobbyNotes.count()).toBe(expected.hobbyNotes);
 
     // Historical snapshots come back untouched, and today's is rebuilt from
     // the restored tasks rather than carried over stale from the backup.
@@ -295,8 +307,11 @@ describe("importBackup", () => {
     expect(restoredSection?.schedule).toEqual({ type: "weekly", days: [1, 3, 5] });
     const restoredTask = await db.tasks.get("t-paper");
     expect(restoredTask?.customSectionId).toBe("sec-research");
-    const restoredNote = await db.notes.get("n-filed");
+    const restoredNote = await db.hobbyNotes.get("n-filed");
     expect(restoredNote?.hobbyId).toBe("h-photo");
+    // The loose note came back as a general note — it never acquired a hobby.
+    expect((await db.generalNotes.get("n-loose"))?.title).toBe("Loose thought");
+    expect(await db.hobbyNotes.get("n-loose")).toBeUndefined();
     expect((await db.tasks.get("t-form"))?.estimatedMinutes).toBeNull();
 
     // Settings are restored and device facts are left alone.
@@ -309,7 +324,7 @@ describe("importBackup", () => {
     expect(useStore.getState().notificationSettings.specialTaskReminders).toBe(false);
 
     // No duplicate primary keys anywhere.
-    for (const table of ["tasks", "logs", "sections", "hobbies", "notes"] as const) {
+    for (const table of ["tasks", "logs", "sections", "hobbies", "generalNotes", "hobbyNotes"] as const) {
       const ids = (await db.table(table).toArray()).map((r: { id: string }) => r.id);
       expect(new Set(ids).size).toBe(ids.length);
     }
@@ -344,14 +359,16 @@ describe("importBackup", () => {
     const afterFirst = {
       tasks: await db.tasks.count(),
       logs: await db.logs.count(),
-      notes: await db.notes.count(),
+      generalNotes: await db.generalNotes.count(),
+      hobbyNotes: await db.hobbyNotes.count(),
     };
 
     await useStore.getState().importBackup(parsed.backup);
     expect({
       tasks: await db.tasks.count(),
       logs: await db.logs.count(),
-      notes: await db.notes.count(),
+      generalNotes: await db.generalNotes.count(),
+      hobbyNotes: await db.hobbyNotes.count(),
     }).toEqual(afterFirst);
   });
 
@@ -381,7 +398,8 @@ describe("importBackup", () => {
           sections: [],
           performance: [],
           hobbies: [],
-          notes: [],
+          generalNotes: [],
+          hobbyNotes: [],
           settings: { meta: {}, theme: null },
         },
       }),
@@ -426,7 +444,8 @@ describe("importBackup", () => {
         sections: [],
         performance: [],
         hobbies: [],
-        notes: [],
+        generalNotes: [],
+        hobbyNotes: [],
         settings: { meta: {}, theme: null },
       },
     });
@@ -463,7 +482,8 @@ describe("importBackup", () => {
         sections: [],
         performance: [],
         hobbies: [],
-        notes: [],
+        generalNotes: [],
+        hobbyNotes: [],
         settings: { meta: {}, theme: null },
       },
     };
@@ -474,7 +494,8 @@ describe("importBackup", () => {
 
     expect(await db.tasks.toArray()).toEqual(before);
     expect(await db.logs.count()).toBe(3);
-    expect(await db.notes.count()).toBe(2);
+    expect(await db.generalNotes.count()).toBe(1);
+    expect(await db.hobbyNotes.count()).toBe(1);
     expect((await db.meta.get("profileName"))?.value).toBe("Aditi");
     quiet.mockRestore();
   });

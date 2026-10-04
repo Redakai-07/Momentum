@@ -385,7 +385,7 @@ export function ProfileView() {
 
   return (
     <PageFrame>
-      <div className="mb-6 flex items-end justify-between gap-x-6 gap-y-3">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-x-6">
         <div>
           <p className="mb-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             Profile
@@ -400,6 +400,7 @@ export function ProfileView() {
           )}
         </div>
         <Segmented<Tab>
+          fill
           options={[
             { value: "overview", label: "Performance" },
             { value: "accomplishments", label: "Accomplishments" },

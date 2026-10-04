@@ -63,9 +63,10 @@ import {
   DEFAULT_PROFILE_NAME,
   type CustomSection,
   type DailyPerformance,
+  type GeneralNote,
   type Hobby,
   type HobbyAccent,
-  type Note,
+  type HobbyNote,
   type Priority,
   type Schedule,
   type SectionKind,
@@ -117,11 +118,16 @@ export interface HobbyInput {
   accent?: HobbyAccent;
 }
 
-export interface NoteInput {
+export interface GeneralNoteInput {
   title: string;
   content: string;
-  /** Optional hobby association — omit for a standalone note. */
-  hobbyId?: string;
+}
+
+export interface HobbyNoteInput {
+  /** The owning hobby — a hobby note always belongs to exactly one. */
+  hobbyId: string;
+  title: string;
+  content: string;
 }
 
 export type NotificationSettingsPatch = Partial<NotificationSettings>;
@@ -171,7 +177,10 @@ type State = {
   notifications: TaskNotification[];
   /** Optional Hobby & Notes space — never part of the task system. */
   hobbies: Hobby[];
-  notes: Note[];
+  /** Standalone scratchpad notes. Never shown inside a hobby. */
+  generalNotes: GeneralNote[];
+  /** Notes owned by a hobby. Never shown in the general notes list. */
+  hobbyNotes: HobbyNote[];
   notificationSettings: NotificationSettings;
   /** Notification intelligence timestamps (persisted in meta). */
   notificationMeta: NotificationMeta;
@@ -219,11 +228,17 @@ type Actions = {
   /* Hobby & Notes — an optional, local-only personal space. */
   addHobby: (input: HobbyInput) => string;
   updateHobby: (id: string, patch: Partial<Hobby>) => void;
-  /** Deletes a hobby and *unfiles* its notes — notes are never destroyed. */
+  /**
+   * Deletes a hobby. Its notes are converted to general notes — the writing
+   * itself is never destroyed, and it stays reachable in the Notes area.
+   */
   removeHobby: (id: string) => void;
-  addNote: (input: NoteInput) => string;
-  updateNote: (id: string, patch: Partial<Note>) => void;
-  removeNote: (id: string) => void;
+  addGeneralNote: (input: GeneralNoteInput) => string;
+  updateGeneralNote: (id: string, patch: Partial<GeneralNote>) => void;
+  removeGeneralNote: (id: string) => void;
+  addHobbyNote: (input: HobbyNoteInput) => string;
+  updateHobbyNote: (id: string, patch: Partial<HobbyNote>) => void;
+  removeHobbyNote: (id: string) => void;
 
   /* Data & Backup — the user's portable copy of everything above. */
   /** Write a complete backup of the persistent data and hand it to the user. */
@@ -399,22 +414,25 @@ function readStoredTheme(): string | null {
  * and its native alarm IDs belong to this device.
  */
 async function buildCurrentBackup(): Promise<MomentumBackup> {
-  const [tasks, logs, sections, performance, hobbies, notes, meta] = await Promise.all([
-    db.tasks.toArray(),
-    db.logs.toArray(),
-    db.sections.toArray(),
-    db.performance.toArray(),
-    db.hobbies.toArray(),
-    db.notes.toArray(),
-    db.meta.toArray(),
-  ]);
+  const [tasks, logs, sections, performance, hobbies, generalNotes, hobbyNotes, meta] =
+    await Promise.all([
+      db.tasks.toArray(),
+      db.logs.toArray(),
+      db.sections.toArray(),
+      db.performance.toArray(),
+      db.hobbies.toArray(),
+      db.generalNotes.toArray(),
+      db.hobbyNotes.toArray(),
+      db.meta.toArray(),
+    ]);
   return buildBackup({
     tasks,
     logs,
     sections,
     performance,
     hobbies,
-    notes,
+    generalNotes,
+    hobbyNotes,
     meta,
     theme: readStoredTheme(),
   });
@@ -820,16 +838,25 @@ async function triggerWelcomeNotificationOnce(): Promise<void> {
 let bootPromise: Promise<void> | null = null;
 
 async function doBoot(set: SetFn, get: GetFn): Promise<void> {
-  const [taskRows, logRows, sectionRows, perfRows, notifRows, hobbyRows, noteRows] =
-    await Promise.all([
-      db.tasks.toArray(),
-      db.logs.toArray(),
-      db.sections.toArray(),
-      db.performance.toArray(),
-      db.notifications.toArray(),
-      db.hobbies.toArray(),
-      db.notes.toArray(),
-    ]);
+  const [
+    taskRows,
+    logRows,
+    sectionRows,
+    perfRows,
+    notifRows,
+    hobbyRows,
+    generalNoteRows,
+    hobbyNoteRows,
+  ] = await Promise.all([
+    db.tasks.toArray(),
+    db.logs.toArray(),
+    db.sections.toArray(),
+    db.performance.toArray(),
+    db.notifications.toArray(),
+    db.hobbies.toArray(),
+    db.generalNotes.toArray(),
+    db.hobbyNotes.toArray(),
+  ]);
   let tasks = taskRows;
   const logs = logRows;
   const sections = sectionRows;
@@ -909,7 +936,8 @@ async function doBoot(set: SetFn, get: GetFn): Promise<void> {
     history: classified,
     notifications: notifRows,
     hobbies: hobbyRows,
-    notes: noteRows,
+    generalNotes: generalNoteRows,
+    hobbyNotes: hobbyNoteRows,
     notificationSettings: settings,
     notificationMeta,
     notificationPermission: storedPermission ?? (nativeAvailable() ? "prompt" : "granted"),
@@ -1010,7 +1038,8 @@ export const useStore = create<MomentumState>()((set, get) => ({
   history: [],
   notifications: [],
   hobbies: [],
-  notes: [],
+  generalNotes: [],
+  hobbyNotes: [],
   notificationSettings: defaultSettings,
   notificationMeta: {},
   notificationPermission: "prompt",
@@ -1032,15 +1061,26 @@ export const useStore = create<MomentumState>()((set, get) => ({
         .catch(async (err) => {
           console.error("Momentum: failed to hydrate local database:", err);
           bootPromise = null;
-          const [tasks, logs, sections, history, hobbies, notes] = await Promise.all([
-            db.tasks.toArray(),
-            db.logs.toArray(),
-            db.sections.toArray(),
-            db.performance.toArray(),
-            db.hobbies.toArray(),
-            db.notes.toArray(),
-          ]);
-          set({ ready: true, tasks, logs, sections, history, hobbies, notes });
+          const [tasks, logs, sections, history, hobbies, generalNotes, hobbyNotes] =
+            await Promise.all([
+              db.tasks.toArray(),
+              db.logs.toArray(),
+              db.sections.toArray(),
+              db.performance.toArray(),
+              db.hobbies.toArray(),
+              db.generalNotes.toArray(),
+              db.hobbyNotes.toArray(),
+            ]);
+          set({
+            ready: true,
+            tasks,
+            logs,
+            sections,
+            history,
+            hobbies,
+            generalNotes,
+            hobbyNotes,
+          });
         });
     }
     return bootPromise;
@@ -1367,55 +1407,108 @@ export const useStore = create<MomentumState>()((set, get) => ({
 
   removeHobby: (id) => {
     const state = get();
-    // Notes outlive their hobby: unfiling keeps every note reachable instead
-    // of silently destroying writing the user never asked to delete.
-    const orphans = state.notes.filter((n) => n.hobbyId === id);
+    // A hobby note cannot exist without its hobby, so deleting one converts its
+    // notes into general notes. The writing is preserved verbatim (id, title,
+    // content and timestamps) and simply moves to the scratchpad — nothing the
+    // user wrote is destroyed.
+    const orphans = state.hobbyNotes.filter((n) => n.hobbyId === id);
+    const adopted: GeneralNote[] = orphans.map(({ id: noteId, title, content, createdAt, updatedAt }) => ({
+      id: noteId,
+      title,
+      content,
+      createdAt,
+      updatedAt,
+    }));
     set((s) => ({
       hobbies: s.hobbies.filter((h) => h.id !== id),
-      notes: s.notes.map((n) => (n.hobbyId === id ? { ...n, hobbyId: undefined } : n)),
+      hobbyNotes: s.hobbyNotes.filter((n) => n.hobbyId !== id),
+      generalNotes: [...adopted, ...s.generalNotes],
     }));
-    db.transaction("rw", [db.hobbies, db.notes], async () => {
+    db.transaction("rw", [db.hobbies, db.hobbyNotes, db.generalNotes], async () => {
       await db.hobbies.delete(id);
-      for (const note of orphans) {
-        await db.notes.put({ ...note, hobbyId: undefined });
-      }
+      await db.hobbyNotes.where("hobbyId").equals(id).delete();
+      for (const note of adopted) await db.generalNotes.put(note);
     }).catch(logError("delete hobby"));
   },
 
-  addNote: (input) => {
+  /* --------------------------- General notes -------------------------- */
+  // A general note has no hobby field at all, so nothing here can file it
+  // under a hobby — the separation is structural, not a UI convention.
+
+  addGeneralNote: (input) => {
     const id = uid();
     const now = new Date().toISOString();
-    const note: Note = {
+    const note: GeneralNote = {
       id,
       title: input.title.trim() || "Untitled note",
       content: input.content,
-      hobbyId: input.hobbyId || undefined,
       createdAt: now,
       updatedAt: now,
     };
-    set((s) => ({ notes: [note, ...s.notes] }));
-    db.notes.add(note).catch(logError("create note"));
+    set((s) => ({ generalNotes: [note, ...s.generalNotes] }));
+    db.generalNotes.add(note).catch(logError("create general note"));
     return id;
   },
 
-  updateNote: (id, patch) => {
-    const current = get().notes.find((n) => n.id === id);
+  updateGeneralNote: (id, patch) => {
+    const current = get().generalNotes.find((n) => n.id === id);
     if (!current) return;
-    const next: Note = {
+    const next: GeneralNote = {
       ...current,
       ...patch,
+      id: current.id,
       title:
         patch.title !== undefined ? patch.title.trim() || "Untitled note" : current.title,
-      hobbyId: patch.hobbyId !== undefined ? patch.hobbyId || undefined : current.hobbyId,
       updatedAt: new Date().toISOString(),
     };
-    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? next : n)) }));
-    db.notes.put(next).catch(logError("update note"));
+    set((s) => ({ generalNotes: s.generalNotes.map((n) => (n.id === id ? next : n)) }));
+    db.generalNotes.put(next).catch(logError("update general note"));
   },
 
-  removeNote: (id) => {
-    set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }));
-    db.notes.delete(id).catch(logError("delete note"));
+  removeGeneralNote: (id) => {
+    set((s) => ({ generalNotes: s.generalNotes.filter((n) => n.id !== id) }));
+    db.generalNotes.delete(id).catch(logError("delete general note"));
+  },
+
+  /* ---------------------------- Hobby notes --------------------------- */
+
+  addHobbyNote: (input) => {
+    const id = uid();
+    const now = new Date().toISOString();
+    const note: HobbyNote = {
+      id,
+      hobbyId: input.hobbyId,
+      title: input.title.trim() || "Untitled note",
+      content: input.content,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ hobbyNotes: [note, ...s.hobbyNotes] }));
+    db.hobbyNotes.add(note).catch(logError("create hobby note"));
+    return id;
+  },
+
+  updateHobbyNote: (id, patch) => {
+    const current = get().hobbyNotes.find((n) => n.id === id);
+    if (!current) return;
+    const next: HobbyNote = {
+      ...current,
+      ...patch,
+      id: current.id,
+      // A hobby note never loses its owner; an empty value falls back to the
+      // existing hobby rather than orphaning the note.
+      hobbyId: patch.hobbyId ? patch.hobbyId : current.hobbyId,
+      title:
+        patch.title !== undefined ? patch.title.trim() || "Untitled note" : current.title,
+      updatedAt: new Date().toISOString(),
+    };
+    set((s) => ({ hobbyNotes: s.hobbyNotes.map((n) => (n.id === id ? next : n)) }));
+    db.hobbyNotes.put(next).catch(logError("update hobby note"));
+  },
+
+  removeHobbyNote: (id) => {
+    set((s) => ({ hobbyNotes: s.hobbyNotes.filter((n) => n.id !== id) }));
+    db.hobbyNotes.delete(id).catch(logError("delete hobby note"));
   },
 
   /* --------------------------- Data & Backup ------------------------- */
@@ -1490,7 +1583,8 @@ export const useStore = create<MomentumState>()((set, get) => ({
           db.sections,
           db.performance,
           db.hobbies,
-          db.notes,
+          db.generalNotes,
+          db.hobbyNotes,
           db.notifications,
           db.meta,
         ],
@@ -1505,8 +1599,10 @@ export const useStore = create<MomentumState>()((set, get) => ({
           await db.performance.bulkAdd(backup.data.performance);
           await db.hobbies.clear();
           await db.hobbies.bulkAdd(backup.data.hobbies);
-          await db.notes.clear();
-          await db.notes.bulkAdd(backup.data.notes);
+          await db.generalNotes.clear();
+          await db.generalNotes.bulkAdd(backup.data.generalNotes);
+          await db.hobbyNotes.clear();
+          await db.hobbyNotes.bulkAdd(backup.data.hobbyNotes);
           // The reminder queue is rebuilt from the restored tasks; carrying the
           // previous queue over would duplicate reminders and reference alarms
           // that belong to the old data.

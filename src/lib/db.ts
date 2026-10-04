@@ -2,8 +2,9 @@ import Dexie, { type Table } from "dexie";
 import type {
   CustomSection,
   DailyPerformance,
+  GeneralNote,
   Hobby,
-  Note,
+  HobbyNote,
   Task,
   TimeLog,
 } from "./types";
@@ -56,6 +57,12 @@ const LEGACY_DEMO_SECTION_IDS = ["sec-research", "sec-fitness"] as const;
  *      rewritten — the new stores merge alongside the existing ones and every
  *      pre-existing row (tasks, logs, performance, sections, notifications,
  *      meta) is left exactly as it was.
+ * v7 — General notes and hobby notes become genuinely separate concepts. The
+ *      single `notes` table is split into `generalNotes` (no hobby) and
+ *      `hobbyNotes` (always a hobby). The migration routes each existing row to
+ *      the correct table by whether it had a `hobbyId`, preserving ids, text
+ *      and timestamps exactly — no note is copied twice and none is dropped.
+ *      The old `notes` table is left in place so the data remains recoverable.
  */
 export class MomentumDB extends Dexie {
   tasks!: Table<Task, string>;
@@ -67,8 +74,15 @@ export class MomentumDB extends Dexie {
   notifications!: Table<TaskNotification, string>;
   /** Interests/categories for the optional Hobby & Notes space. */
   hobbies!: Table<Hobby, string>;
-  /** Lightweight personal notes, optionally filed under a hobby. */
-  notes!: Table<Note, string>;
+  /**
+   * Legacy combined note table (schema v6). Retained after the v7 split purely
+   * so no user writing is destroyed; nothing reads or writes it any more.
+   */
+  notes!: Table<Record<string, unknown>, string>;
+  /** Standalone scratchpad notes — never belong to a hobby. */
+  generalNotes!: Table<GeneralNote, string>;
+  /** Notes owned by exactly one hobby. */
+  hobbyNotes!: Table<HobbyNote, string>;
 
   constructor() {
     super("momentum");
@@ -233,6 +247,53 @@ export class MomentumDB extends Dexie {
     });
     // No upgrade() callback on purpose: this migration only adds empty tables.
     // Touching existing tables here would risk user data for no benefit.
+
+    this.version(7)
+      .stores({
+        tasks: "id, section, status, dueDate",
+        logs: "id, taskId, date",
+        sections: "id",
+        performance: "date",
+        meta: "key",
+        notifications: "id, taskId, status",
+        hobbies: "id, updatedAt, name",
+        notes: "id, hobbyId, updatedAt, createdAt",
+        generalNotes: "id, updatedAt, createdAt",
+        hobbyNotes: "id, hobbyId, updatedAt, createdAt",
+      })
+      .upgrade(async (tx) => {
+        // Split the combined table. Every existing row keeps its id, title,
+        // content and timestamps verbatim — only the destination differs:
+        //   hobbyId present  → hobbyNotes (the association is preserved)
+        //   hobbyId absent   → generalNotes
+        // A row whose hobby no longer exists becomes a general note rather than
+        // an unreachable hobby note, matching how deleting a hobby behaves.
+        const legacy = tx.table<Record<string, unknown>, string>("notes");
+        const general = tx.table<GeneralNote, string>("generalNotes");
+        const hobbyNotes = tx.table<HobbyNote, string>("hobbyNotes");
+        const hobbyIds = new Set(
+          (await tx.table<Hobby, string>("hobbies").toArray()).map((h) => h.id),
+        );
+
+        const rows = await legacy.toArray();
+        for (const row of rows) {
+          const id = typeof row.id === "string" ? row.id : null;
+          if (!id) continue;
+          const base = {
+            id,
+            title: typeof row.title === "string" ? row.title : "",
+            content: typeof row.content === "string" ? row.content : "",
+            createdAt: typeof row.createdAt === "string" ? row.createdAt : new Date().toISOString(),
+            updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : new Date().toISOString(),
+          };
+          const hobbyId = typeof row.hobbyId === "string" && row.hobbyId ? row.hobbyId : null;
+          if (hobbyId && hobbyIds.has(hobbyId)) {
+            await hobbyNotes.put({ ...base, hobbyId });
+          } else {
+            await general.put(base);
+          }
+        }
+      });
 }
 }
 

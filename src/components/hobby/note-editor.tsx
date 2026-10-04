@@ -2,31 +2,30 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Select, Textarea } from "@/components/ui/form";
+import { Field, Input, Textarea } from "@/components/ui/form";
 import { Modal } from "@/components/ui/modal";
 import { hobbyAccent } from "@/lib/hobbies";
-import type { Hobby, Note } from "@/lib/types";
+import type { GeneralNote, Hobby, HobbyNote } from "@/lib/types";
 
+/** Shared shape: a note is only ever a title and some body text. */
 export interface NoteDraft {
   title: string;
   content: string;
-  hobbyId?: string;
 }
 
-export function NoteEditor({
+/* ------------------------------------------------------------------ */
+/* General notes — a standalone scratchpad, no hobby anywhere          */
+/* ------------------------------------------------------------------ */
+
+export function GeneralNoteEditor({
   open,
   note,
-  hobbies,
-  /** Preselected hobby when creating from inside a hobby. */
-  defaultHobbyId,
   onClose,
   onSubmit,
   onDelete,
 }: {
   open: boolean;
-  note?: Note | null;
-  hobbies: Hobby[];
-  defaultHobbyId?: string;
+  note?: GeneralNote | null;
   onClose: () => void;
   onSubmit: (draft: NoteDraft) => void;
   onDelete?: () => void;
@@ -39,12 +38,9 @@ export function NoteEditor({
       title={note ? "Edit note" : "Capture an idea"}
       className="sm:max-w-xl"
     >
-      {/* Keyed so a fresh note never inherits the previous one's text. */}
       <NoteForm
-        key={open ? (note?.id ?? `new:${defaultHobbyId ?? ""}`) : "closed"}
+        key={open ? (note?.id ?? "new") : "closed"}
         note={note ?? undefined}
-        hobbies={hobbies}
-        defaultHobbyId={defaultHobbyId}
         onClose={onClose}
         onSubmit={onSubmit}
         onDelete={onDelete}
@@ -53,35 +49,73 @@ export function NoteEditor({
   );
 }
 
-function NoteForm({
+/* ------------------------------------------------------------------ */
+/* Hobby notes — always filed under the hobby they were opened from    */
+/* ------------------------------------------------------------------ */
+
+export function HobbyNoteEditor({
+  open,
+  hobby,
   note,
-  hobbies,
-  defaultHobbyId,
   onClose,
   onSubmit,
   onDelete,
 }: {
-  note?: Note;
-  hobbies: Hobby[];
-  defaultHobbyId?: string;
+  open: boolean;
+  hobby: Hobby;
+  note?: HobbyNote | null;
+  onClose: () => void;
+  onSubmit: (draft: NoteDraft) => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      eyebrow={note ? "Edit note" : `${hobby.icon ? `${hobby.icon} ` : ""}${hobby.name}`}
+      title={note ? "Edit note" : `Add a note to ${hobby.name}`}
+      className="sm:max-w-xl"
+    >
+      <NoteForm
+        key={open ? (note?.id ?? `new:${hobby.id}`) : "closed"}
+        note={note ?? undefined}
+        onClose={onClose}
+        onSubmit={onSubmit}
+        onDelete={onDelete}
+        owner={hobby}
+      />
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* The form both editors share                                         */
+/* ------------------------------------------------------------------ */
+
+function NoteForm({
+  note,
+  owner,
+  onClose,
+  onSubmit,
+  onDelete,
+}: {
+  note?: GeneralNote | HobbyNote;
+  owner?: Hobby;
   onClose: () => void;
   onSubmit: (draft: NoteDraft) => void;
   onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState<NoteDraft>(() =>
-    note
-      ? { title: note.title, content: note.content, hobbyId: note.hobbyId }
-      : { title: "", content: "", hobbyId: defaultHobbyId },
+    note ? { title: note.title, content: note.content } : { title: "", content: "" },
   );
 
   // A note may be untitled — `deriveNoteTitle` falls back to the first line of
   // the body, so saving is allowed as long as something exists.
   const hasSomething = draft.title.trim().length > 0 || draft.content.trim().length > 0;
-  const owner = draft.hobbyId ? hobbies.find((h) => h.id === draft.hobbyId) : undefined;
 
   const submit = () => {
     if (!hasSomething) return;
-    onSubmit({ ...draft, hobbyId: draft.hobbyId || undefined });
+    onSubmit({ title: draft.title, content: draft.content });
   };
 
   return (
@@ -101,28 +135,16 @@ function NoteForm({
           value={draft.content}
           onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
           rows={9}
-          placeholder="Write freely. Nothing here becomes a task."
+          placeholder={
+            owner
+              ? `Write freely about ${owner.name}.`
+              : "Write freely. Nothing here becomes a task."
+          }
           className="min-h-[190px]"
         />
       </Field>
 
-      <Field label="Hobby" hint="Optional">
-        <Select
-          value={draft.hobbyId ?? ""}
-          onChange={(e) => setDraft((d) => ({ ...d, hobbyId: e.target.value || undefined }))}
-          aria-label="Hobby"
-        >
-          <option value="">No hobby — keep it unfiled</option>
-          {hobbies.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.icon ? `${h.icon} ` : ""}
-              {h.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      {owner && (
+      {owner ? (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <span
             data-hobby-accent={hobbyAccent(owner.accent)}
@@ -130,6 +152,10 @@ function NoteForm({
             style={{ backgroundColor: "hsl(var(--hobby))" }}
           />
           Filed under {owner.name}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          General note — kept on its own, not filed under any hobby.
         </p>
       )}
 
@@ -146,7 +172,7 @@ function NoteForm({
             Cancel
           </Button>
           <Button variant="primary" size="sm" disabled={!hasSomething} onClick={submit}>
-            {note ? "Save note" : "Create note"}
+            {note ? "Save note" : owner ? "Add note" : "Create note"}
           </Button>
         </div>
       </div>

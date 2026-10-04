@@ -1,4 +1,4 @@
-import type { Hobby, HobbyAccent, Note } from "./types";
+import type { GeneralNote, Hobby, HobbyAccent, HobbyNote } from "./types";
 
 /**
  * Hobby & Notes business logic.
@@ -6,6 +6,14 @@ import type { Hobby, HobbyAccent, Note } from "./types";
  * Pure functions only — no React, no Dexie, no Capacitor. The store owns
  * persistence and the views own presentation, so search, filtering and
  * ordering stay testable and behave identically everywhere.
+ *
+ * The two note concepts are deliberately kept apart here as well as in the
+ * data model:
+ *
+ * - **General notes** (`GeneralNote`) are a standalone scratchpad. They have no
+ *   hobby, and no function in this module can ever move one into a hobby.
+ * - **Hobby notes** (`HobbyNote`) always carry a `hobbyId` and are only ever
+ *   reachable through that hobby.
  */
 
 /** Curated accents. Each has light/dark variants defined in globals.css. */
@@ -42,64 +50,67 @@ export function byRecentlyUpdated<T extends { updatedAt: string }>(items: T[]): 
   return [...items].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
 }
 
-export interface NoteFilter {
-  /** Free-text query matched against title and content (case-insensitive). */
-  query?: string;
-  /** `undefined` = every note, `null` = unfiled notes, string = that hobby. */
-  hobbyId?: string | null;
-}
+/* ------------------------------------------------------------------ */
+/* General notes                                                       */
+/* ------------------------------------------------------------------ */
 
 /** Case-insensitive substring match across a note's title and body. */
-export function noteMatchesQuery(note: Note, query: string): boolean {
+export function noteMatchesQuery(
+  note: { title: string; content: string },
+  query: string,
+): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return (
-    note.title.toLowerCase().includes(q) || note.content.toLowerCase().includes(q)
-  );
+  return note.title.toLowerCase().includes(q) || note.content.toLowerCase().includes(q);
 }
 
 /**
- * Apply the active filters and return notes newest-updated first.
+ * General notes matching an optional query, newest-updated first.
  *
- * Notes whose hobby was deleted are surfaced as unfiled rather than hidden, so
- * a note can never become unreachable.
+ * There is no hobby parameter by design: a general note has no hobby, and this
+ * list is the only place general notes ever appear.
  */
-export function filterNotes(notes: Note[], filter: NoteFilter = {}): Note[] {
-  const { query = "", hobbyId } = filter;
-  const matched = notes.filter((note) => {
-    if (hobbyId !== undefined) {
-      const owner = note.hobbyId ?? null;
-      if (owner !== hobbyId) return false;
-    }
-    return noteMatchesQuery(note, query);
-  });
-  return byRecentlyUpdated(matched);
-}
-
-/** Notes that belong to a hobby, newest first. */
-export function notesForHobby(notes: Note[], hobbyId: string): Note[] {
-  return byRecentlyUpdated(notes.filter((n) => n.hobbyId === hobbyId));
-}
-
-/** Notes with no hobby at all. */
-export function unfiledNotes(notes: Note[]): Note[] {
-  return byRecentlyUpdated(notes.filter((n) => !n.hobbyId));
-}
-
-/** How many notes each hobby holds, keyed by hobby id. */
-export function noteCountsByHobby(notes: Note[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const note of notes) {
-    if (!note.hobbyId) continue;
-    counts.set(note.hobbyId, (counts.get(note.hobbyId) ?? 0) + 1);
-  }
-  return counts;
+export function filterGeneralNotes(notes: GeneralNote[], query = ""): GeneralNote[] {
+  return byRecentlyUpdated(notes.filter((n) => noteMatchesQuery(n, query)));
 }
 
 /** Hobbies sorted for display: most recently touched first. */
 export function orderedHobbies(hobbies: Hobby[]): Hobby[] {
   return byRecentlyUpdated(hobbies);
 }
+
+/* ------------------------------------------------------------------ */
+/* Hobby notes                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Notes belonging to one hobby, newest first. */
+export function notesForHobby(notes: HobbyNote[], hobbyId: string): HobbyNote[] {
+  return byRecentlyUpdated(notes.filter((n) => n.hobbyId === hobbyId));
+}
+
+/** How many notes each hobby holds, keyed by hobby id. */
+export function noteCountsByHobby(notes: HobbyNote[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const note of notes) {
+    counts.set(note.hobbyId, (counts.get(note.hobbyId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Notes whose hobby no longer exists.
+ *
+ * `removeHobby` converts its notes to general notes, so this should stay empty;
+ * it exists so the view can surface — never silently drop — anything orphaned.
+ */
+export function orphanedHobbyNotes(notes: HobbyNote[], hobbies: Hobby[]): HobbyNote[] {
+  const ids = new Set(hobbies.map((h) => h.id));
+  return byRecentlyUpdated(notes.filter((n) => !ids.has(n.hobbyId)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Presentation helpers                                                */
+/* ------------------------------------------------------------------ */
 
 /**
  * A short, single-line preview of note content for list rows.

@@ -218,25 +218,23 @@ describe("Reminder-section tasks", () => {
 /* ------------------------------------------------------------------ */
 
 describe("Occasional tasks", () => {
-  it("get a gentle, low-priority check-in when they have no date", () => {
+  it("get no automatic reminder when they have no date", () => {
     const plan = evaluateReminder(
       ctx({ tasks: [T({ id: "trip", title: "Plan trip", section: "occasional" })] }),
     );
 
-    expect(plan.records.map((r) => r.date)).toEqual([TUE]);
-    expect(plan.records[0].type).toBe("monthly");
-    expect(plan.records[0].priority).toBe("low");
+    expect(plan.records).toHaveLength(0);
+    expect(plan.skipped.some((s) => s.reason === "no_date")).toBe(true);
   });
 
-  it("are never re-armed after their moment passed (no nagging)", () => {
+  it("never become a recurring nag while undated", () => {
     const plan = evaluateReminder(
       ctx({
         now: at(2026, 9, 15, 12),
         tasks: [T({ id: "trip", title: "Plan trip", section: "occasional" })],
       }),
     );
-    expect(on(plan, TUE)).toHaveLength(0);
-    expect(plan.skipped.some((s) => s.reason === "moment_passed")).toBe(true);
+    expect(plan.records).toHaveLength(0);
   });
 
   it("use a due date when one exists", () => {
@@ -638,5 +636,135 @@ describe("the native queue", () => {
     expect(scheduled.sectionIds).toEqual(["sec-research"]);
     expect(scheduled.reason).toBe("scheduled_task");
     expect(scheduled.priority).toBe("medium");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Task type → reminder matrix                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The centralized, deterministic policy. One row per task type, asserting the
+ * type of reminder it is eligible for — and, just as importantly, the ones it
+ * is NOT. Nothing here is a score; the mapping is predictable by construction.
+ */
+describe("task type → reminder matrix", () => {
+  const dayOf = (plan: ReturnType<typeof evaluateReminder>, date: string) =>
+    plan.records.filter((r) => r.date === date).map((r) => r.type);
+
+  it("Daily → daily eligibility, on every local day", () => {
+    const plan = evaluateReminder(ctx({ tasks: [T({ id: "a", title: "Habit" })] }));
+    expect(dayOf(plan, MON)).toContain("daily");
+    expect(dayOf(plan, TUE)).toContain("daily");
+  });
+
+  it("Reminder → weekly eligibility only, never daily", () => {
+    const plan = evaluateReminder(
+      ctx({ tasks: [T({ id: "a", title: "Essay", section: "remainder" })] }),
+    );
+    expect(dayOf(plan, SAT)).toContain("weekly");
+    // Monday and Tuesday are not the check-in day.
+    expect(dayOf(plan, MON)).toHaveLength(0);
+    expect(dayOf(plan, TUE)).toHaveLength(0);
+  });
+
+  it("Occasional with a date → date-based reminder", () => {
+    const plan = evaluateReminder(
+      ctx({
+        tasks: [
+          T({ id: "a", title: "Trip", section: "occasional", dueDate: "2026-09-18" }),
+        ],
+      }),
+    );
+    expect(dayOf(plan, "2026-09-18")).toContain("due");
+  });
+
+  it("Occasional without a date → no automatic reminder at all", () => {
+    const plan = evaluateReminder(
+      ctx({ tasks: [T({ id: "a", title: "Trip", section: "occasional" })] }),
+    );
+    expect(plan.records).toHaveLength(0);
+  });
+
+  it("Custom section → eligible only on days the section is active", () => {
+    const mondaySection: CustomSection = {
+      id: "sec-research",
+      name: "Research",
+      schedule: { type: "weekly", days: [1], startTime: "19:00" },
+      createdAt: "2026-01-01T09:00:00.000Z",
+    };
+    const plan = evaluateReminder(
+      ctx({
+        sections: [mondaySection],
+        tasks: [
+          T({ id: "a", title: "Read paper", section: "custom", customSectionId: "sec-research" }),
+        ],
+      }),
+    );
+    expect(dayOf(plan, MON)).toContain("daily");
+    expect(dayOf(plan, TUE)).toHaveLength(0);
+    expect(plan.skipped.some((s) => s.reason === "section_inactive")).toBe(true);
+  });
+
+  it("Daily section → reminders on every day the section is active", () => {
+    const dailySection: CustomSection = {
+      id: "sec-focus",
+      name: "Focus",
+      schedule: { type: "daily", startTime: "08:00" },
+      createdAt: "2026-01-01T09:00:00.000Z",
+    };
+    const plan = evaluateReminder(
+      ctx({
+        sections: [dailySection],
+        tasks: [
+          T({ id: "a", title: "Deep work", section: "custom", customSectionId: "sec-focus" }),
+        ],
+      }),
+    );
+    expect(dayOf(plan, MON)).toContain("daily");
+    expect(dayOf(plan, TUE)).toContain("daily");
+  });
+
+  it("Monthly (last day) section → reminders only on the last day", () => {
+    const monthly: CustomSection = {
+      id: "sec-report",
+      name: "Report",
+      schedule: { type: "monthly-date", dayOfMonth: "last" },
+      createdAt: "2026-01-01T09:00:00.000Z",
+    };
+    // Reasoned from the 28th, so the 30th falls inside the horizon.
+    const plan = evaluateReminder(
+      ctx({
+        now: at(2026, 9, 28),
+        sections: [monthly],
+        tasks: [
+          T({ id: "a", title: "Monthly report", section: "custom", customSectionId: "sec-report" }),
+        ],
+      }),
+    );
+    expect(dayOf(plan, "2026-09-30")).toContain("daily");
+    expect(dayOf(plan, "2026-09-28")).toHaveLength(0);
+    expect(dayOf(plan, "2026-09-29")).toHaveLength(0);
+  });
+
+  it("Monthly (weekday occurrence) section → reminders only on that occurrence", () => {
+    // The 4th Monday of September 2026 is the 28th; the 1st is the 7th.
+    const fourthMonday: CustomSection = {
+      id: "sec-review",
+      name: "Review",
+      schedule: { type: "monthly-weekday", weekday: 1, occurrence: "fourth" },
+      createdAt: "2026-01-01T09:00:00.000Z",
+    };
+    const plan = evaluateReminder(
+      ctx({
+        now: at(2026, 9, 28),
+        sections: [fourthMonday],
+        tasks: [
+          T({ id: "a", title: "Review", section: "custom", customSectionId: "sec-review" }),
+        ],
+      }),
+    );
+    expect(dayOf(plan, "2026-09-28")).toContain("daily");
+    expect(dayOf(plan, "2026-09-29")).toHaveLength(0);
   });
 });

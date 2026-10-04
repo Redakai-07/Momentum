@@ -57,6 +57,7 @@ function TodayHero({
   planned,
   remaining,
   untimedCount,
+  timedCount,
   openTotal,
   doneTotal,
   upNext,
@@ -69,6 +70,7 @@ function TodayHero({
   planned: number;
   remaining: number;
   untimedCount: number;
+  timedCount: number;
   openTotal: number;
   doneTotal: number;
   upNext: Task | null;
@@ -79,7 +81,12 @@ function TodayHero({
   const pct = planned > 0 ? Math.min(100, Math.round((done / planned) * 100)) : null;
   const totalTasks = openTotal + doneTotal;
   const taskPct = totalTasks > 0 ? Math.round((doneTotal / totalTasks) * 100) : 0;
-  const shownPct = pct ?? taskPct;
+  // A day is either measured in minutes (every task is timed) or in tasks.
+  // Mixing the two — a minute ratio beside an untimed to-do count — compares
+  // incomparable things, so when untimed tasks exist we report tasks instead.
+  const allTimed = timedCount > 0 && untimedCount === 0;
+  const mixed = timedCount > 0 && untimedCount > 0;
+  const shownPct = allTimed ? (pct ?? taskPct) : taskPct;
   const allDone = openTotal === 0 && doneTotal > 0;
 
   return (
@@ -106,18 +113,28 @@ function TodayHero({
             />
           </div>
           <span className="shrink-0 font-mono text-[11px] tnum text-muted-foreground">
-            {planned > 0
+            {allTimed
               ? `${formatMinutes(done)} / ${formatMinutes(planned)}`
               : `${doneTotal} of ${totalTasks} done`}
           </span>
         </div>
       )}
 
-      <div className="mt-3 text-muted-foreground">
+      {/*
+       * One aligned line: the streak, then how many tasks are left. When the
+       * day mixes timed and untimed work, the minute figure is spelled out as
+       * timed work so it is never read as the whole remaining workload.
+       */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
         <StreakInline streak={streak} />
-        {untimedCount > 0 && (
-          <span className="ml-3 font-mono text-[11.5px] tnum">
-            {untimedCount} to-do{untimedCount === 1 ? "" : "s"}
+        {openTotal > 0 && (
+          <span className="font-mono text-[11.5px] tnum">
+            {openTotal} to-do{openTotal === 1 ? "" : "s"} left
+          </span>
+        )}
+        {mixed && remaining > 0 && (
+          <span className="font-mono text-[11.5px] tnum">
+            {formatMinutes(remaining)} timed left
           </span>
         )}
       </div>
@@ -385,6 +402,7 @@ export function TodayView() {
                 planned={derived.workload.planned}
                 remaining={derived.workload.remaining}
                 untimedCount={derived.workload.untimedCount}
+                timedCount={derived.workload.timedCount}
                 openTotal={derived.openTotal}
                 doneTotal={derived.doneTotal}
                 upNext={derived.upNext}

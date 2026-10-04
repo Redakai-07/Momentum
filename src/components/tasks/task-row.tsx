@@ -35,19 +35,6 @@ function dueHint(task: Task): { text: string; tone: "overdue" | "signal" } | nul
   return null;
 }
 
-function priorityMark(task: Task) {
-  if (!task.priority || task.priority === "medium" || isTaskDone(task)) return null;
-  return (
-    <span
-      className={cn(
-        "h-1.5 w-1.5 shrink-0 rounded-full",
-        task.priority === "high" ? "bg-signal" : "bg-muted-foreground/50",
-      )}
-      title={task.priority === "high" ? "High priority" : "Low priority"}
-    />
-  );
-}
-
 export function TaskRow({
   task,
   onOpen,
@@ -127,7 +114,6 @@ export function TaskRow({
           >
             {task.title}
           </span>
-          {priorityMark(task)}
         </div>
 
         {/* The next action is the single most useful secondary field, so it

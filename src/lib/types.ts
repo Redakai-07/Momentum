@@ -163,16 +163,32 @@ export interface Hobby {
 }
 
 /**
- * A lightweight personal note.
+ * A general note — a personal scratchpad entry.
  *
- * Notes are intentionally plain: a title, free text, and an optional hobby to
- * belong to. They never enter the task, scheduling, performance or streak
+ * General notes are completely independent and anonymous: they belong to no
+ * hobby and can never appear inside one. They are what the "Notes" area shows,
+ * and nothing else. Never enter the task, scheduling, performance or streak
  * systems.
  */
-export interface Note {
+export interface GeneralNote {
   id: string;
-  /** Optional hobby association — notes may also stand alone. */
-  hobbyId?: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A note that belongs to exactly one hobby.
+ *
+ * `hobbyId` is required: a hobby note only ever lives inside its hobby's
+ * context, and is never shown in the general notes list. Deleting the hobby
+ * converts its notes to general notes rather than destroying them.
+ */
+export interface HobbyNote {
+  id: string;
+  /** The owning hobby. Always present — this is what makes it a hobby note. */
+  hobbyId: string;
   title: string;
   content: string;
   createdAt: string;

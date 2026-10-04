@@ -12,16 +12,11 @@ import { TaskRow } from "@/components/tasks/task-row";
 import { TaskDetailModal } from "@/components/tasks/task-detail";
 import { TaskFormModal } from "@/components/tasks/task-form";
 
-const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
-
 function sortRemainder(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => {
     const ad = a.dueDate ?? "9999";
     const bd = b.dueDate ?? "9999";
     if (ad !== bd) return ad < bd ? -1 : 1;
-    const ap = PRIORITY_RANK[a.priority ?? "medium"] ?? 1;
-    const bp = PRIORITY_RANK[b.priority ?? "medium"] ?? 1;
-    if (ap !== bp) return ap - bp;
     return a.createdAt < b.createdAt ? -1 : 1;
   });
 }
