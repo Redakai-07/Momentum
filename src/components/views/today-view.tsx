@@ -140,7 +140,7 @@ function TodayHero({
       </div>
 
       {/* Up next — the single most useful thing on this screen. */}
-      {openTotal > 0 && upNext && (
+      {/* {openTotal > 0 && upNext && (
         <div className="mt-5 border-t border-border/70 pt-4">
           <p className="mb-1.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             Up next
@@ -176,7 +176,7 @@ function TodayHero({
             )}
           </div>
         </div>
-      )}
+      )} */}
 
       {allDone && (
         <p className="mt-5 flex items-center gap-2 border-t border-border/70 pt-4 text-[13px] text-muted-foreground">
